@@ -103,7 +103,11 @@ class NumpyPolicy:
         self.day_u.append(u)
         hp = h + self.W @ u
         hx = np.repeat(hp[None], N_PROD, 0)
-        hid = _gelu(self._lin(np.concatenate([po, hx], -1), "head.0"))
+        feat = np.concatenate([po, hx], -1)
+        if "thead.0.weight" in w:
+            tl = self._lin(_gelu(self._lin(feat, "thead.0")), "thead.2")
+            feat = np.concatenate([feat, _softmax(tl)], -1)
+        hid = _gelu(self._lin(feat, "head.0"))
         logits = self._lin(hid, "head.2")
         v = self._lin(_gelu(self._lin(hp, "vhead.0")), "vhead.2")
         return logits, v

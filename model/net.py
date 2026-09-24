@@ -66,7 +66,10 @@ class TTTPolicy(nn.Module):
         self.w_fast0 = nn.Parameter(torch.zeros(D, D))
         self.p_y = nn.Linear(D, N_TGT, bias=False)
         self.log_eta = nn.Parameter(torch.tensor(-3.0))
-        self.head = nn.Sequential(nn.Linear(2 * D, D), nn.GELU(), nn.Linear(D, N_BINS))
+        # top-player prior head (pretrained by behaviour cloning on ladder replays, bins 0..4)
+        self.thead = nn.Sequential(nn.Linear(2 * D, D), nn.GELU(), nn.Linear(D, N_BINS - 1))
+        # policy head sees product/temporal features + the top-player prior distribution
+        self.head = nn.Sequential(nn.Linear(2 * D + N_BINS - 1, D), nn.GELU(), nn.Linear(D, N_BINS))
         self.vhead = nn.Sequential(nn.Linear(D, D), nn.GELU(), nn.Linear(D, 2))  # [win logit, money diff/1e4]
         nn.init.normal_(self.pemb, std=0.02)
         with torch.no_grad():
@@ -118,8 +121,11 @@ class TTTPolicy(nn.Module):
         po, z = self.encode(P, G)
         h, ssl = self.temporal(z, day_idx, day_tgt, day_mask)
         hx = h.unsqueeze(2).expand(-1, -1, N_PROD, -1)
-        logits = self.head(torch.cat([po, hx], -1))               # [B,T,9,N_BINS]
+        feat = torch.cat([po, hx], -1)
+        tlogits = self.thead(feat)                                 # [B,T,9,N_BINS-1]
+        logits = self.head(torch.cat([feat, tlogits.softmax(-1)], -1))  # [B,T,9,N_BINS]
         value = self.vhead(h)                                      # [B,T,2]
+        self.last_tlogits = tlogits
         return logits, value, ssl
 
     def export(self, path):

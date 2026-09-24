@@ -386,8 +386,8 @@ def main(argv=None):
     for r in range(a.rounds):
         if time.time() >= c.deadline:
             break
+        c.download()          # fetch everything already discovered first (listing is rate limited)
         c.discover(a.max_lists)
-        c.download()
     c.save()
     print(f"[done] downloaded={len(c.done)} indexed={len(c.index)} shards={c.shard_no}", flush=True)
 

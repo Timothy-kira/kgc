@@ -1,0 +1,5 @@
+/home/user/kgc/rl/grpo.py:153: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /__w/pytorch/pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:820.)
+  stats.setdefault(k, []).append(float(v))
+{"it": 0, "learner": "main", "kept_groups": 8, "groups": 8, "mean_r": 0.4384400401667589, "win": 0.4375, "tie": 0.0, "sec": 118.1, "pg": 4.908007880051931e-05, "anchor": 0.009920897893607616, "ent": 0.07078271980086963, "vloss": 1.3734023173650105, "ssl": 0.927894115447998, "clipfrac": 0.0038806901405526637, "opps": ["main_latest.npz"]}
+{"it": 1, "learner": "main", "kept_groups": 8, "groups": 8, "mean_r": 0.4552285520209162, "win": 0.4791666666666667, "tie": 0.0, "sec": 150.6, "pg": -8.685203890005747e-06, "anchor": 0.009797019883990288, "ent": 0.07023539890845616, "vloss": 0.8298730055491129, "ssl": 0.8350813984870911, "clipfrac": 1.2742236625247946e-05, "opps": ["main_latest.npz"]}
