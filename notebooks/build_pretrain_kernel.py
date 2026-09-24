@@ -1,4 +1,4 @@
-"""Build a Kaggle kernel (GPU account) that extracts replay features and pretrains the trunk.
+"""Build a Kaggle kernel (second account, CPU only) that extracts replay features and pretrains the trunk.
 
 Inputs:  public replay DB dataset + a code dataset with this repo's sources.
 Output:  /kaggle/working/pretrained.pt / pretrained.npz (+ extracted parts for reuse)
@@ -39,7 +39,7 @@ def build(kdir, owner, code_ds, min_score="2600", max_eps="6000", epochs="4"):
     code = TEMPLATE.replace("{min_score}", min_score).replace("{max_eps}", max_eps).replace("{epochs}", epochs)
     open(os.path.join(kdir, "pretrain.py"), "w").write(code)
     meta = {"id": f"{owner}/kgc-pretrain", "title": "kgc pretrain", "code_file": "pretrain.py",
-            "language": "python", "kernel_type": "script", "is_private": True, "enable_gpu": True,
+            "language": "python", "kernel_type": "script", "is_private": True, "enable_gpu": False,
             "enable_internet": True, "dataset_sources": [code_ds, "xishengfeng/kaggriculture-replay-db"],
             "competition_sources": [], "kernel_sources": []}
     json.dump(meta, open(os.path.join(kdir, "kernel-metadata.json"), "w"), indent=1)
