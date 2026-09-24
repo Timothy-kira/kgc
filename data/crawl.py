@@ -47,7 +47,7 @@ CFG_KEYS = ("episodeSteps", "boardSize", "startingMoney", "maxMarketOrdersPerTur
 
 
 # --------------------------------------------------------------------------- io helpers
-def _http(req_fn, tries=6):
+def _http(req_fn, tries=8):
     delay = 2.0
     for k in range(tries):
         try:
@@ -55,11 +55,13 @@ def _http(req_fn, tries=6):
         except urllib.error.HTTPError as e:
             if e.code in (400, 403, 404):
                 raise
+            if e.code == 429:  # rate limited: back off hard
+                delay = max(delay, 15.0)
             err = e
         except Exception as e:  # network hiccup
             err = e
         time.sleep(delay + random.random())
-        delay = min(delay * 2, 60)
+        delay = min(delay * 2, 180)
     raise err
 
 
@@ -188,6 +190,7 @@ class Crawler:
         for f in glob.glob(os.path.join(self.out, "shards", "ep_*.parquet")):
             self.done.update(pq.read_table(f, columns=["episode_id"]).column(0).to_pylist())
         self.failed = set(st.get("failed", []))
+        self.list_fail = {}
         self.buffer = []
         print(f"[resume] frontier={len(self.frontier)} listed_subs={len(self.sub_listed_at)} "
               f"indexed_eps={len(self.index)} downloaded={len(self.done)} shards={self.shard_no}", flush=True)
@@ -262,8 +265,14 @@ class Crawler:
                     except Exception as e:
                         print(f"[list] sub {s} failed: {e}", flush=True)
                         with self.lock:
-                            self.frontier.pop(s, None)
-                            self.sub_listed_at[s] = time.time()
+                            # keep it on the frontier (lower priority) unless it keeps failing
+                            self.list_fail[s] = self.list_fail.get(s, 0) + 1
+                            if self.list_fail[s] >= 3:
+                                self.frontier.pop(s, None)
+                                self.sub_listed_at[s] = time.time()
+                            else:
+                                self.frontier[s] = self.frontier.get(s, 0) - 500
+                        time.sleep(10)
                     n += 1
                 if n % 50 < len(batch):
                     print(f"[discover] listed={len(self.sub_listed_at)} frontier={len(self.frontier)} "
