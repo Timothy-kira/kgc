@@ -248,10 +248,17 @@ class Indexer(nn.Module):
         weights = self.weights_proj(x) * (self.softmax_scale * self.n_heads ** -0.5)
         return q, weights
 
+    TIE_EPS = 1e-5
+
     def scores(self, x, qr, index_k, freqs_q):
         q, weights = self.qw(x, qr, freqs_q)
         s = torch.einsum("bshd,btd->bsht", q.float(), index_k.float())
-        return (s.relu() * weights.float().unsqueeze(-1)).sum(dim=2)          # [b,s,t]
+        s = (s.relu() * weights.float().unsqueeze(-1)).sum(dim=2)            # [b,s,t]
+        # Deterministic tie-break toward recent positions. With relu scores many positions tie at
+        # exactly 0 (untrained indexer); topk then breaks ties differently for the batched prefill
+        # and the single-query decode layouts. The reference never needs this: it runs inference only
+        # with trained weights. Identical in both paths, so prefill == decode.
+        return s + self.TIE_EPS * torch.arange(s.size(-1), device=s.device, dtype=s.dtype) / max(1, s.size(-1))
 
     def selected_scores(self, x, qr, index_k, freqs_q, idx):
         """Differentiable indexer scores at the selected positions only (idx [b,s,k], -1 = none)."""
