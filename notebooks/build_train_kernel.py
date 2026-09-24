@@ -13,7 +13,7 @@ files = glob.glob("/kaggle/input/**/seq_*.npz", recursive=True)
 print("seq files", len(files), flush=True)
 subprocess.run(["nvidia-smi"], check=False)
 init = glob.glob("/kaggle/input/**/ckpt/__INIT__.pt", recursive=True)
-cmd = [sys.executable, "-m", "model.train_seq", "--data", ",".join(sorted(set(os.path.dirname(f) for f in files))
+cmd = [sys.executable, "-X", "faulthandler", "-u", "-m", "model.train_seq", "--data", ",".join(sorted(set(os.path.dirname(f) for f in files))
        and [d + "/seq_*.npz" for d in sorted(set(os.path.dirname(f) for f in files))]),
        "--out", "/kaggle/working/ckpt", "--stage", "__STAGE__", "--max_hours", "__HOURS__",
        "--batch", "__BATCH__", "--crop_steps", "__CROP__", "--epochs", "__EPOCHS__"] + "__EXTRA__".split()
@@ -25,7 +25,10 @@ with open("/kaggle/working/train.log", "w") as log:
     for line in p.stdout:
         print(line, end="", flush=True)
         log.write(line)
-    p.wait()
+    rc = p.wait()
+    print("train exit code", rc, flush=True)
+    log.write(f"train exit code {rc}\n")
+subprocess.run("free -g; nvidia-smi --query-gpu=memory.used,utilization.gpu --format=csv", shell=True)
 '''
 
 

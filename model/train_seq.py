@@ -171,6 +171,7 @@ def main():
     opt = torch.optim.AdamW(net.parameters(), lr=lr, betas=(0.9, 0.95), weight_decay=0.05)
     coefs = {"value": 0.2, "mtp": 0.3, "index": 0.1}
     loader = Loader(train, a.batch, ms, a.crop_steps, device, epochs=a.epochs)
+    print("loader started", flush=True)
     deadline = time.time() + a.max_hours * 3600
     t0, tl = time.time(), time.time()
     step, tokens, seq_tokens = 0, 0, 0
@@ -178,6 +179,8 @@ def main():
     est_total = max(1000, int(a.epochs * len(train) * 400 / a.batch))   # rough: ~400 trajs per file
     net.train()
     for i, b in enumerate(loader):
+        if i == 0:
+            print("first batch", {k: tuple(v.shape) for k, v in b.items()}, flush=True)
         cur_lr = lr * min(1.0, (step + 1) / warm) * (0.1 + 0.9 * 0.5 * (1 + math.cos(math.pi * min(1.0, step / est_total))))
         for g in opt.param_groups:
             g["lr"] = cur_lr
@@ -194,7 +197,7 @@ def main():
             step += 1
         tokens += st["ntok"]
         seq_tokens += st["seq"]
-        if step % a.log_every == 0 and (i + 1) % a.accum == 0:
+        if (step % a.log_every == 0 or step <= 3) and (i + 1) % a.accum == 0:
             dt = time.time() - tl
             print(json.dumps({"step": step, "lr": round(cur_lr, 6), **{k: round(v, 4) if isinstance(v, float) else v
                                                                           for k, v in st.items()},
