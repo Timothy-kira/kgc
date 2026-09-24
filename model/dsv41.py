@@ -140,6 +140,15 @@ def rope_tail(x, freqs_cis, rd, inverse=False):
     return torch.cat([x[..., :-rd], apply_rotary_emb(x[..., -rd:], freqs_cis, inverse)], -1)
 
 
+def rope_tail_b(x, fb, rd, inverse=False):
+    """RoPE on the last rd channels with a different position per batch element.
+    x [b,1,d] or [b,1,h,d]; fb [b, rd/2] complex."""
+    xc = torch.view_as_complex(x[..., -rd:].float().unflatten(-1, (-1, 2)).contiguous())
+    f = fb.conj() if inverse else fb
+    f = f.view(f.size(0), 1, -1) if xc.ndim == 3 else f.view(f.size(0), 1, 1, -1)
+    return torch.cat([x[..., :-rd], torch.view_as_real(xc * f).flatten(-2).to(x.dtype)], -1)
+
+
 def sparse_attn(q, kv, attn_sink, topk_idxs, softmax_scale, chunk=2048, return_probs=False):
     """Reference semantics of kernel.sparse_attn: for each query gather kv rows by index (-1 = none),
     softmax over them plus a per-head sink logit (the sink takes mass but contributes no value).
@@ -455,6 +464,74 @@ class Attention(nn.Module):
         o = sparse_attn(q, keys, self.attn_sink, idxs, self.softmax_scale)
         return self._out(o, freqs)
 
+    def decode_multi(self, x, pos, cache):
+        """Batched single-token decode where every batch element sits at its own position pos[b]
+        (used for many parallel games in RL rollouts). Equivalent to per-element `decode`."""
+        bsz = x.size(0)
+        rd, win = self.rope_head_dim, self.window_size
+        ar = torch.arange(bsz, device=x.device)
+        fb = self.freqs_cis[pos]
+        qr = self.q_norm(self.wq_a(x))
+        q = rope_tail_b(self.wq_b(qr).unflatten(-1, (self.n_heads, self.head_dim)), fb, rd)
+        kv = rope_tail_b(self.kv_norm(self.wkv(x)), fb, rd)
+        cache["window"][ar, pos % win] = kv[:, 0]
+        slots = torch.arange(win, device=x.device).unsqueeze(0)
+        held = pos.unsqueeze(1) - ((pos.unsqueeze(1) - slots) % win)       # position held by each ring slot
+        idxs = torch.where(held >= 0, slots, -1).unsqueeze(1)             # [b,1,win]
+        keys = cache["window"][:bsz]
+        o_out = None
+        if self.compress_ratio:
+            ratio = self.compress_ratio
+            if self.is_kv_source:
+                xf = x[:, 0]
+                if ratio == 1:
+                    latent = self.compressor(x)[:, 0]
+                    done = torch.ones(bsz, dtype=torch.bool, device=x.device)
+                else:
+                    kv_, sc_ = self.compressor.wkv(xf.float()), self.compressor.wgate(xf.float())
+                    st = cache["state"]
+                    st["kv"][ar, pos % ratio] = kv_
+                    st["score"][ar, pos % ratio] = sc_
+                    done = (pos + 1) % ratio == 0
+                    pooled = (st["kv"][:bsz] * st["score"][:bsz].softmax(dim=1)).sum(dim=1)
+                    latent = self.compressor.norm(pooled.to(x.dtype))
+                if bool(done.any()):
+                    d = done.nonzero().squeeze(1)
+                    j = pos[d] // ratio
+                    lat = latent[d].unsqueeze(1)
+                    cf = self.freqs_cis[pos[d] + 1 - ratio]
+                    if self.indexer is not None:
+                        cache["index_k"][d, j] = rope_tail_b(self.indexer.k_norm(self.indexer.wk(lat)), cf,
+                                                             self.indexer.rope_head_dim)[:, 0]
+                    cache["compress_kv"][d, j] = rope_tail_b(lat, cf, rd)[:, 0]
+                self.shared.compress_kv = cache["compress_kv"]
+                if self.indexer is not None:
+                    self.shared.index_k = cache["index_k"]
+            n_comp = (pos + 1) // ratio
+            max_n = int(n_comp.max())
+            if max_n > 0:
+                if self.is_index_source:
+                    q_i = self.indexer.wq_b(qr).unflatten(-1, (self.indexer.n_heads, self.indexer.index_head_dim))
+                    q_i = rope_tail_b(q_i, fb, self.indexer.rope_head_dim)
+                    weights = self.indexer.weights_proj(x) * (self.indexer.softmax_scale * self.indexer.n_heads ** -0.5)
+                    si = torch.einsum("bshd,btd->bsht", q_i.float(), self.shared.index_k[:bsz, :max_n].float())
+                    si = (si.relu() * weights.float().unsqueeze(-1)).sum(dim=2)
+                    si = si + Indexer.TIE_EPS * torch.arange(max_n, device=x.device, dtype=si.dtype) / max(1, max_n)
+                    si = si.masked_fill(torch.arange(max_n, device=x.device).view(1, 1, -1) >= n_comp.view(-1, 1, 1),
+                                        -torch.inf)
+                    k = min(self.indexer.index_topk, max_n)
+                    top = si.topk(k, dim=-1, sorted=False).indices.sort(dim=-1).values
+                    ok = torch.gather(si, -1, top) > -torch.inf
+                    self.shared.topk_idxs = torch.where(ok, top, -1)
+                comp = self.shared.topk_idxs
+                keys = torch.cat([keys, self.shared.compress_kv[:bsz, :max_n]], 1)
+                idxs = torch.cat([idxs, torch.where(comp >= 0, comp + win, -1)], -1)
+        o = sparse_attn(q, keys, self.attn_sink, idxs, self.softmax_scale)
+        o = rope_tail_b(o, fb, rd, inverse=True)
+        o = o.reshape(bsz, 1, self.n_groups, -1)
+        o = torch.einsum("bsgd,grd->bsgr", o, self.wo_a)
+        return self.wo_b(o.flatten(2))
+
     def decode(self, x, start_pos, cache):
         """x [b,1,dim] for position start_pos."""
         bsz = x.size(0)
@@ -627,7 +704,12 @@ class Block(nn.Module):
         residual = x
         attn_pre, attn_post, attn_comb = self.hc_mixes(x, self.hc_attn_fn, self.hc_attn_scale, self.hc_attn_base)
         h = self.attn_norm(self.hc_pre(x, pre_mix))
-        h = self.attn(h) if decode is None else self.attn.decode_chunk(h, *decode)
+        if decode is None:
+            h = self.attn(h)
+        elif torch.is_tensor(decode[0]):
+            h = self.attn.decode_multi(h, *decode)
+        else:
+            h = self.attn.decode_chunk(h, *decode)
         x = self.hc_post(h, residual, attn_post, attn_comb)
         residual = x
         ffn_pre, ffn_post, ffn_comb = self.hc_mixes(x, self.hc_ffn_fn, self.hc_ffn_scale, self.hc_ffn_base)
@@ -739,6 +821,26 @@ class Transformer(nn.Module):
         pre_mix = make_identity_pre_mix(h, self.hc_mult)
         for layer, c in zip(self.layers, caches):
             h, pre_mix = layer(h, pre_mix, decode=(start_pos, c))
+        return self.norm(self.layers[-1].hc_pre(h, pre_mix))
+
+    @staticmethod
+    def stack_caches(caches_list):
+        """Concatenate per-game caches (each built with bsz=1) along the batch dim."""
+        def cat(vals):
+            if torch.is_tensor(vals[0]):
+                return torch.cat(vals, 0)
+            if isinstance(vals[0], dict):
+                return {k: cat([v[k] for v in vals]) for k in vals[0]}
+            return vals[0]
+        return [cat([c[i] for c in caches_list]) for i in range(len(caches_list[0]))]
+
+    @torch.no_grad()
+    def step_multi(self, h_in, pos, caches):
+        """One token per batch element, each at its own position pos [b] (parallel games)."""
+        h = h_in.unsqueeze(2).repeat(1, 1, self.hc_mult, 1)
+        pre_mix = make_identity_pre_mix(h, self.hc_mult)
+        for layer, c in zip(self.layers, caches):
+            h, pre_mix = layer(h, pre_mix, decode=(pos, c))
         return self.norm(self.layers[-1].hc_pre(h, pre_mix))
 
     def update_gate_bias(self, speed=1e-3):
