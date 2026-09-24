@@ -261,7 +261,8 @@ class Indexer(nn.Module):
 
     def scores(self, x, qr, index_k, freqs_q):
         q, weights = self.qw(x, qr, freqs_q)
-        s = torch.einsum("bshd,btd->bsht", q.float(), index_k.float())
+        # matmul in the compute dtype (fp16 tensor cores under autocast), reduction in fp32
+        s = torch.einsum("bshd,btd->bsht", q, index_k.to(q.dtype)).float()
         s = (s.relu() * weights.float().unsqueeze(-1)).sum(dim=2)            # [b,s,t]
         # Deterministic tie-break toward recent positions. With relu scores many positions tie at
         # exactly 0 (untrained indexer); topk then breaks ties differently for the batched prefill
@@ -275,7 +276,7 @@ class Indexer(nn.Module):
         b, s_, k = idx.shape
         kk = torch.gather(index_k, 1, idx.clamp(min=0).flatten(1).unsqueeze(-1).expand(-1, -1, index_k.size(-1)))
         kk = kk.view(b, s_, k, -1)
-        sc = torch.einsum("bshd,bskd->bshk", q.float(), kk.float())
+        sc = torch.einsum("bshd,bskd->bshk", q, kk.to(q.dtype)).float()
         return (sc.relu() * weights.float().unsqueeze(-1)).sum(dim=2)          # [b,s,k]
 
 
@@ -809,6 +810,9 @@ class Transformer(nn.Module):
             x = m.norm(m.block.hc_pre(x, pm))
             mtp_logits = self.head(x[mtp_pos[:, 0], mtp_pos[:, 1]].float())
         return logits, value, mtp_logits, aux
+
+    def forward(self, *args, **kw):
+        return self.forward_train(*args, **kw)
 
     # ---------------------------------------------------------------------- incremental inference
     def init_cache(self, bsz=1, device="cpu"):

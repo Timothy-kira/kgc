@@ -111,7 +111,10 @@ def gpu_util():
 
 def compute_loss(net, b, dtype, coefs):
     feats = obs_feats(b, dtype)
-    logits, value, mtp_logits, aux = net.forward_train(b["ids"], feats, b["otype"], b["tgt_pos"], b["tgt_ids"],
+    fwd = net.module.forward_train if hasattr(net, "module") else net.forward_train
+    if hasattr(net, "module"):                   # DDP: route through forward() so gradients are synchronised
+        fwd = lambda *x: net(*x)
+    logits, value, mtp_logits, aux = fwd(b["ids"], feats, b["otype"], b["tgt_pos"], b["tgt_ids"],
                                                        b["val_pos"], b["mtp_pos"], None, b["mtp_ids"])
     ce = F.cross_entropy(logits.float(), b["tgt_ids"], reduction="none")
     w = b["tgt_w"]
@@ -147,13 +150,21 @@ def main():
     ap.add_argument("--n_layers", type=int, default=6)
     a = ap.parse_args()
     torch.backends.cuda.matmul.allow_tf32 = True
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # DDP (torchrun) support: one process per GPU, each reading a disjoint subset of files
+    world = int(os.environ.get("WORLD_SIZE", "1"))
+    rank = int(os.environ.get("RANK", "0"))
+    if world > 1:
+        import torch.distributed as dist
+        dist.init_process_group("nccl")
+        torch.cuda.set_device(int(os.environ.get("LOCAL_RANK", "0")))
+    device = f"cuda:{torch.cuda.current_device()}" if torch.cuda.is_available() else "cpu"
     ms = a.min_score if a.min_score is not None else (1800 if a.stage == "pre" else 2800)
     lr = a.lr or (1e-3 if a.stage == "pre" else 2e-4)
     files = sorted(sum([glob.glob(g) for g in a.data.split(",")], []))
     random.Random(0).shuffle(files)
     nv = a.val_files if len(files) > a.val_files else 0
     val, train = files[:nv], files[nv:]
+    train = train[rank::world] if world > 1 else train
     os.makedirs(a.out, exist_ok=True)
     args = ModelArgs(obs_types=OBS_TYPES, dim=a.dim, n_layers=a.n_layers,
                      compress_ratios=tuple([0] + [2] * ((a.n_layers - 2) // 2) + [1] * (a.n_layers - 2 - (a.n_layers - 2) // 2) + [0, 0]),
@@ -163,11 +174,18 @@ def main():
     if a.init:
         sd = torch.load(a.init, map_location=device)
         print("init", net.load_state_dict(sd, strict=False), flush=True)
+    core = net
+    if world > 1:
+        net = torch.nn.parallel.DistributedDataParallel(net, device_ids=[torch.cuda.current_device()],
+                                                        find_unused_parameters=True)
+        core = net.module
     n_params = sum(p.numel() for p in net.parameters())
     print(f"device={device} params={n_params} train_files={len(train)} val_files={len(val)} min_score={ms}", flush=True)
-    amp_dtype = torch.bfloat16 if (device == "cuda" and torch.cuda.is_bf16_supported()) else torch.float16
-    use_amp = device == "cuda"
+    use_amp = device.startswith("cuda")
+    # bf16 only with native support (Ampere+); T4 (sm75) would emulate it slowly -> fp16 + GradScaler
+    amp_dtype = torch.bfloat16 if (use_amp and torch.cuda.get_device_capability()[0] >= 8) else torch.float16
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp and amp_dtype == torch.float16)
+    print("amp dtype", amp_dtype, "world", world, flush=True)
     opt = torch.optim.AdamW(net.parameters(), lr=lr, betas=(0.9, 0.95), weight_decay=0.05)
     coefs = {"value": 0.2, "mtp": 0.3, "index": 0.1}
     loader = Loader(train, a.batch, ms, a.crop_steps, device, epochs=a.epochs)
@@ -193,7 +211,7 @@ def main():
             scaler.step(opt)
             scaler.update()
             opt.zero_grad(set_to_none=True)
-            net.update_gate_bias()
+            core.update_gate_bias()
             step += 1
         tokens += st["ntok"]
         seq_tokens += st["seq"]
@@ -203,14 +221,21 @@ def main():
                                                                           for k, v in st.items()},
                               "seq_tok_per_s": round(seq_tokens / max(dt, 1e-6)), "gpu_util": gpu_util(),
                               "queue": loader.q.qsize(), "mem_gb": round(torch.cuda.max_memory_allocated() / 1e9, 2)
-                              if device == "cuda" else 0, "elapsed_min": round((time.time() - t0) / 60, 1)}), flush=True)
+                              if use_amp else 0, "rank": rank, "elapsed_min": round((time.time() - t0) / 60, 1)}), flush=True)
             tl, seq_tokens = time.time(), 0
-        if step and step % a.save_every == 0 and (i + 1) % a.accum == 0:
-            torch.save(net.state_dict(), os.path.join(a.out, f"{a.stage}.pt"))
+        if step and step % a.save_every == 0 and (i + 1) % a.accum == 0 and rank == 0:
+            torch.save(core.state_dict(), os.path.join(a.out, f"{a.stage}.pt"))
         if time.time() > deadline:
             break
     loader.stop = True
-    torch.save(net.state_dict(), os.path.join(a.out, f"{a.stage}.pt"))
+    if rank == 0:
+        torch.save(core.state_dict(), os.path.join(a.out, f"{a.stage}.pt"))
+    if world > 1:
+        import torch.distributed as dist
+        dist.barrier()
+        if rank != 0:
+            return
+    net = core
     # validation
     if not val:
         print("saved", os.path.join(a.out, f"{a.stage}.pt"), flush=True)
