@@ -36,6 +36,17 @@ def main():
             outs.append(net.step(h0[:, p:p + 1], p, caches))
     inc = torch.cat(outs, 1)
     t2 = time.time()
+    # chunked decode (random chunk sizes) must match too
+    caches = net.init_cache(1)
+    outs, p = [], 0
+    g = torch.Generator().manual_seed(1)
+    with torch.no_grad():
+        while p < h0.size(1):
+            n = int(torch.randint(1, 40, (1,), generator=g))
+            outs.append(net.step(h0[:, p:p + n], p, caches))
+            p += n
+    chunked = torch.cat(outs, 1)
+    print(f"max|full-chunked|={(full - chunked).abs().max().item():.2e}")
     d = (full - inc).abs().max().item()
     print(f"S={h0.size(1)} max|full-incremental|={d:.2e} full {t1 - t0:.2f}s incremental {t2 - t1:.2f}s "
           f"({(t2 - t1) / h0.size(1) * 1e3:.2f} ms/token)")

@@ -394,6 +394,67 @@ class Attention(nn.Module):
                 c["index_k"] = torch.zeros(bsz, n, self.indexer.index_head_dim, device=device)
         return c
 
+    def decode_chunk(self, x, start_pos, cache):
+        """Multi-token incremental step: x [b,n,dim] at positions start_pos..start_pos+n-1.
+        Projections are batched; cache writes and visibility are handled per token, so the result is
+        identical to feeding the n tokens one by one."""
+        bsz, n, _ = x.size()
+        if n == 1:
+            return self.decode(x, start_pos, cache)
+        rd, win = self.rope_head_dim, self.window_size
+        freqs = self.freqs_cis[start_pos:start_pos + n]
+        qr = self.q_norm(self.wq_a(x))
+        q = rope_tail(self.wq_b(qr).unflatten(-1, (self.n_heads, self.head_dim)), freqs, rd)
+        kv = rope_tail(self.kv_norm(self.wkv(x)), freqs, rd)
+        # window: previous (ordered) ring contents + the new tokens
+        n_prev = min(win, start_pos)
+        if n_prev:
+            prev_pos = torch.arange(start_pos - n_prev, start_pos, device=x.device)
+            prev = cache["window"][:bsz, prev_pos % win]
+            all_kv = torch.cat([prev, kv], 1)
+        else:
+            all_kv = kv
+        base = start_pos - n_prev
+        pos = torch.arange(start_pos, start_pos + n, device=x.device)
+        rel = (pos - base).unsqueeze(1)                                   # index of token itself in all_kv
+        w = torch.arange(win, device=x.device)
+        widx = rel - (win - 1) + w                                        # oldest .. self
+        widx = torch.where(widx < 0, -1, widx).unsqueeze(0).expand(bsz, -1, -1)
+        for i in range(n):
+            cache["window"][:bsz, (start_pos + i) % win] = kv[:, i]
+        keys, idxs = all_kv, widx
+        if self.compress_ratio:
+            ratio = self.compress_ratio
+            if self.is_kv_source:
+                for i in range(n):
+                    p_ = start_pos + i
+                    xi = x[:, i:i + 1]
+                    latent = self.compressor(xi, p_, cache.get("state")) if ratio > 1 else self.compressor(xi)
+                    if latent is not None:
+                        j = p_ // ratio
+                        cf = self.freqs_cis[p_ + 1 - ratio].unsqueeze(0)
+                        if self.indexer is not None:
+                            cache["index_k"][:bsz, j:j + 1] = self.indexer.make_k(latent, cf)
+                        cache["compress_kv"][:bsz, j:j + 1] = rope_tail(latent, cf, rd)
+                self.shared.compress_kv = cache["compress_kv"]
+                if self.indexer is not None:
+                    self.shared.index_k = cache["index_k"]
+            n_end = (start_pos + n) // ratio
+            if n_end > 0:
+                comp_lens = ((pos + 1) // ratio).unsqueeze(1)             # visible compressed per token
+                if self.is_index_source:
+                    si = self.indexer.scores(x, qr, self.shared.index_k[:bsz, :n_end], freqs)   # [b,n,n_end]
+                    si = si.masked_fill(torch.arange(n_end, device=x.device) >= comp_lens, -torch.inf)
+                    k = min(self.indexer.index_topk, n_end)
+                    top = si.topk(k, dim=-1, sorted=False).indices.sort(dim=-1).values
+                    ok = torch.gather(si, -1, top) > -torch.inf
+                    self.shared.topk_idxs = torch.where(ok, top, -1)
+                comp = self.shared.topk_idxs
+                keys = torch.cat([keys, self.shared.compress_kv[:bsz, :n_end]], 1)
+                idxs = torch.cat([idxs, torch.where(comp >= 0, comp + all_kv.size(1), -1)], -1)
+        o = sparse_attn(q, keys, self.attn_sink, idxs, self.softmax_scale)
+        return self._out(o, freqs)
+
     def decode(self, x, start_pos, cache):
         """x [b,1,dim] for position start_pos."""
         bsz = x.size(0)
@@ -566,7 +627,7 @@ class Block(nn.Module):
         residual = x
         attn_pre, attn_post, attn_comb = self.hc_mixes(x, self.hc_attn_fn, self.hc_attn_scale, self.hc_attn_base)
         h = self.attn_norm(self.hc_pre(x, pre_mix))
-        h = self.attn(h) if decode is None else self.attn.decode(h, *decode)
+        h = self.attn(h) if decode is None else self.attn.decode_chunk(h, *decode)
         x = self.hc_post(h, residual, attn_post, attn_comb)
         residual = x
         ffn_pre, ffn_post, ffn_comb = self.hc_mixes(x, self.hc_ffn_fn, self.hc_ffn_scale, self.hc_ffn_base)
@@ -673,7 +734,7 @@ class Transformer(nn.Module):
 
     @torch.no_grad()
     def step(self, h_in, start_pos, caches):
-        """Feed ONE embedded token (h_in [b,1,dim]) at start_pos; returns final hidden [b,1,dim]."""
+        """Feed embedded tokens h_in [b,n,dim] at positions start_pos.. ; returns final hidden [b,n,dim]."""
         h = h_in.unsqueeze(2).repeat(1, 1, self.hc_mult, 1)
         pre_mix = make_identity_pre_mix(h, self.hc_mult)
         for layer, c in zip(self.layers, caches):
