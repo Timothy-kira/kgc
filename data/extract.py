@@ -4,8 +4,8 @@ For every episode (both seats) re-simulate with the official interpreter, run th
 Tracker the agent uses, and store per step: product feats P, global feats G, the player's
 actual sell bins (0..4, from its market orders), plus day targets and the final outcome.
 
-python -m data.extract <db_dir> <out_dir> [min_score] [max_episodes] [procs]
-Writes out_dir/part_XXXX.npz (one per chunk of episodes).
+python -m data.extract <db_dir> <out_dir> [min_score] [max_shards] [procs]
+Writes out_dir/part_ep_XXXXX.npz (one per DB shard, incremental).
 """
 import multiprocessing as mp
 import os
@@ -58,13 +58,15 @@ def extract_row(r):
 
 
 def _work(args):
-    db_dir, eids, path = args
-    db = ReplayDB(db_dir)
+    shard, min_score, path = args
+    import pyarrow.parquet as pq
+    from data.replay_db import _unz
     items = []
-    for eid in eids:
+    for r in pq.read_table(shard).to_pylist():
+        eid = r["episode_id"]
         try:
-            r = db.row(eid)
-            from data.replay_db import _unz
+            if min((r["updated_score_0"] or 0), (r["updated_score_1"] or 0)) < min_score:
+                continue
             r["actions"] = _unz(r.pop("actions_zstd"))
             res = extract_row(r)
             if res:
@@ -78,19 +80,22 @@ def _work(args):
 
 
 def main():
+    """Incremental: one output part per DB shard; shards already extracted are skipped, so re-running
+    after the crawler has added shards only processes the new ones."""
     db_dir, out = sys.argv[1], sys.argv[2]
-    ms = float(sys.argv[3]) if len(sys.argv) > 3 else 2500
+    ms = float(sys.argv[3]) if len(sys.argv) > 3 else 1800
     mx = int(sys.argv[4]) if len(sys.argv) > 4 else 10 ** 9
     procs = int(sys.argv[5]) if len(sys.argv) > 5 else 4
     os.makedirs(out, exist_ok=True)
     db = ReplayDB(db_dir)
-    df = db.episodes(min_score=ms)
-    done = {f for f in os.listdir(out)}
-    eids = df.sort_values("updated_score_0", ascending=False).episode_id.tolist()[:mx]
-    chunks = [(db_dir, eids[i:i + 20], os.path.join(out, f"part_{i // 20:05d}.npz")) for i in range(0, len(eids), 20)]
-    chunks = [c for c in chunks if os.path.basename(c[2]) not in done]
+    done = set(os.listdir(out))
+    jobs = []
+    for sh in db.shards[:mx]:
+        name = "part_" + os.path.basename(sh).replace(".parquet", ".npz")
+        if name not in done:
+            jobs.append((sh, ms, os.path.join(out, name)))
     with mp.Pool(procs) as p:
-        for path, n in p.imap_unordered(_work, chunks):
+        for path, n in p.imap_unordered(_work, jobs):
             print(path, n, flush=True)
 
 
