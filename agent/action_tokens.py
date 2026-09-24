@@ -30,8 +30,10 @@ ORDER_ARG_OPS = {"SELL", "BUY_SEED", "BUY_PRODUCT", "BUY_ANIMAL"}
 CROPS = ["WHEAT", "CARROT", "TOMATO", "STRAWBERRY", "MELON"]
 ANIMALS = ["GOOSE", "COW", "SHEEP"]
 PRODUCTS = ["WHEAT", "CARROT", "TOMATO", "STRAWBERRY", "MELON", "EGG", "MILK", "WOOL", "FERTILIZER"]
-ITEMS_FOR = {"PLANT": CROPS, "PICKUP": ITEMS, "PLACE": ITEMS, "SELL": PRODUCTS, "BUY_SEED": CROPS,
-             "BUY_PRODUCT": ["WHEAT", "FERTILIZER"], "BUY_ANIMAL": ANIMALS}
+# Market orders accept any item token: top players deliberately queue no-op orders (e.g. BUY_PRODUCT EGG,
+# empty []) to shift the index at which their real orders meet the opponent's in lockstep execution.
+ITEMS_FOR = {"PLANT": CROPS, "PICKUP": ITEMS, "PLACE": ITEMS, "SELL": ITEMS, "BUY_SEED": ITEMS,
+             "BUY_PRODUCT": ITEMS, "BUY_ANIMAL": ITEMS}
 
 
 class TokenizeError(ValueError):
@@ -201,7 +203,7 @@ class Grammar:
         if s == "order":
             names = ["<EOS>"]
             if self.n_orders < self.max_orders:
-                names += ["M:" + o for o in MARKET_OPS]
+                names += ["M:" + o for o in MARKET_OPS] + ["<EMPTY>"]
             return _ids(names)
         if s == "order_item":
             return _ids(["I:" + i for i in ITEMS_FOR[self.op]])
@@ -245,6 +247,8 @@ class Grammar:
         elif s == "order":
             if t == "<EOS>":
                 self.state = "done"
+            elif t == "<EMPTY>":
+                self.n_orders += 1
             else:
                 self.op = t[2:]
                 self.n_orders += 1

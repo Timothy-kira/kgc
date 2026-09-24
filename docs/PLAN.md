@@ -14,7 +14,7 @@
 - **用户的最新要求**：
   1. 训练严格按 **预训练 → 中期训练 → 后训练（RL）** 的顺序进行。RL 必须在大规模 replay 蒸馏之后才开始，之前提前启动的 GRPO 已停止。
   2. 预训练和中期训练**只用大规模 replay 做蒸馏**，不用手写规则对手，也不用我们自己执行层的对局数据。
-  3. **不要分类头**，采用 **decoder-only** 统一序列模型（参考 DeepSeek），直接解码输出动作 token，不设独立编码器。
+  3. **不要分类头**，采用 **decoder-only** 统一序列模型（参考 DeepSeek-V4.1-Flash 的 CSA2 稀疏注意力），直接解码输出动作 token，不设独立编码器。
   4. 预训练可以用 GPU，但必须保证 GPU 利用率高，不能卡在 CPU 数据加载上。RL 也可以用 GPU。其他情况非必要不用 GPU。
 
 ## 关键发现（影响设计）
@@ -32,10 +32,15 @@
   - 另加类型嵌入和步内位置嵌入
 - **动作 token**（`agent/action_tokens.py`）：离散词表，包括单位操作、物品、数量（0–99 精确值，≥100 的分档，999 表示全部）、分隔符 `<FARMER>/<HAND>/<MARKET>/<EOS>`，以及兜底 token `<BASE>`。
   - 验收要求：在 replay 上编码→解码 100% 还原原始动作。
-- **主干（混合注意力 + MTP，不使用 TTT）**：
-  - 大部分层：滑窗注意力（SWA），窗口约 2 步，即约 160 个 token。
-  - 少数层：token 级稀疏全局注意力（DeepSeek DSA / HySparse2 的思路），从整局历史中选 top-k 个关键 token，并强制保留近期窗口。
-  - MTP 多 token 预测（DeepSeek-V3）：训练时作为辅助损失；推理时可用于投机解码加速。
+- **主干：参照 DeepSeek-V4.1-Flash 的 CSA2（已读官方 inference/model.py 和 config）**
+  - 每一层都同时看两部分 KV，合并成一次注意力：
+    - 最近 128 个 token 的原始 KV（滑窗，约 2 步）；
+    - 由轻量索引器从整局历史中选出的 top-k 个压缩位置（k≈64–128）。这是 DSA / lightning indexer 的做法。
+  - 各层的 `compress_ratios`（参考 V4.1 的 0 / 2 / 1）：第 0 层只用滑窗；中间层压缩比为 2（每 2 个 token 用门控 softmax 池化成 1 个 KV）；后几层压缩比为 1（逐 token 做 top-k）。
+  - KV 和索引跨层复用（Full / Reindex / Reuse）：只有少数 kv_source 层做压缩，少数 index_source 层跑索引器，其余层直接复用。
+  - 不用稠密全注意力。原因是 CPU 推理每步只有 1 秒，而一局约 5 万 token；CSA 能让每个 token 的计算量有上限，同时保留全局视野。
+  - MTP（`n_mtp_layers`=1–2）：训练时作为辅助损失，推理时可做投机解码。
+  - MoE、mHC、Engram、CED 在当前规模（约 1M 参数）下不引入。
   - 价值头：预测终局胜率和资金差，供 RL 使用。
 - **损失**：只在动作 token 上计算 next-token 交叉熵（蒸馏），另加价值头和 MTP 辅助损失。
 - **推理**：numpy 实现，带 KV 缓存。观测 token 一次性并行 prefill，动作 token 逐个解码，按语法掩码只生成合法动作。目标每步 <100ms。
@@ -66,7 +71,7 @@
 - GPU 训练端：
   - 后台线程把下一块 mmap 进来，放入 pinned 内存，再异步拷到显存。
   - 训练时直接在显存里随机取小批次，训练循环里没有 CPU 解压、拼 batch 或 Python 逐条处理。
-  - 使用 AMP 混合精度；滑窗注意力按块计算。
+  - 使用 AMP 混合精度；训练时稀疏注意力用块化的掩码实现，保证与推理时的 top-k 选择语义一致。
   - 每轮打印 GPU 利用率和吞吐（token/s）作为监控。
 
 ## 数据
@@ -78,7 +83,7 @@
 env/            fast_env.py, replay_check.py
 data/           crawl.py, replay_db.py, extract.py(→ 增加 token 序列), pack.py
 agent/          features.py, action_tokens.py(新), controller.py, main 打包
-model/          net.py(→ decoder-only: SWA+稀疏全局+MTP), policy_np.py(numpy KV-cache 解码), pretrain.py(GPU 预训练/中期训练)
+model/          net.py(→ decoder-only, CSA2 风格: 滑窗+压缩KV+top-k 索引器+MTP), policy_np.py(numpy KV-cache 解码), pretrain.py(GPU 预训练/中期训练)
 rl/             grpo.py(后训练, token 级), rollout.py, league.py, rule_adversaries.py(仅 RL 阶段)
 notebooks/      replay_db / extract(CPU) / pretrain(GPU) / rl(GPU) 的 Kaggle kernel 构建器
 submit/         pack.py
