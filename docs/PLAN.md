@@ -32,13 +32,12 @@
   - 另加类型嵌入和步内位置嵌入
 - **动作 token**（`agent/action_tokens.py`）：离散词表，包括单位操作、物品、数量（0–99 精确值，≥100 的分档，999 表示全部）、分隔符 `<FARMER>/<HAND>/<MARKET>/<EOS>`，以及兜底 token `<BASE>`。
   - 验收要求：在 replay 上编码→解码 100% 还原原始动作。
-- **主干（混合注意力 + TTT + MTP）**：
+- **主干（混合注意力 + MTP，不使用 TTT）**：
   - 大部分层：滑窗注意力（SWA），窗口约 2 步，即约 160 个 token。
   - 少数层：token 级稀疏全局注意力（DeepSeek DSA / HySparse2 的思路），从整局历史中选 top-k 个关键 token，并强制保留近期窗口。
-  - TTT 快速权重层（In-Place TTT）：每天结束时用闭式梯度更新，把整局历史压缩进权重。自监督目标是当天市场净流量和价格变化，初始快速权重通过元学习得到。
   - MTP 多 token 预测（DeepSeek-V3）：训练时作为辅助损失；推理时可用于投机解码加速。
   - 价值头：预测终局胜率和资金差，供 RL 使用。
-- **损失**：只在动作 token 上计算 next-token 交叉熵（蒸馏），另加价值、TTT 自监督和 MTP 辅助损失。
+- **损失**：只在动作 token 上计算 next-token 交叉熵（蒸馏），另加价值头和 MTP 辅助损失。
 - **推理**：numpy 实现，带 KV 缓存。观测 token 一次性并行 prefill，动作 token 逐个解码，按语法掩码只生成合法动作。目标每步 <100ms。
 - numpy 推理版与 torch 训练版逐位对拍一致。
 
@@ -48,11 +47,11 @@
    - 损失：
      - 下一个 token 的交叉熵，按评分和胜负加权（胜方 1.0、负方 0.5）
      - 价值头损失
-     - TTT 自监督损失
+     - MTP 辅助损失
    - 大 batch、混合精度（AMP）、按块预取。
 2. **中期训练（GPU，高质量蒸馏）**
    - 数据：评分 ≥2800、以胜方为主的子集，较低学习率。
-   - 做法：继续蒸馏；TTT 在大量不同对手的真实对局上继续元学习。
+   - 做法：继续蒸馏。
    - 验收：蒸馏出的 agent 在本地闭环对局中与 metav4 和其他公开 agent 对打，看胜率与资金。
    - 若弱于 metav4，则启用 `<BASE>` 混合模式：在执行不稳定的部分照抄执行层动作。
 3. **后训练（RL，GPU 负责学习，CPU 负责 rollout）**
@@ -67,7 +66,7 @@
 - GPU 训练端：
   - 后台线程把下一块 mmap 进来，放入 pinned 内存，再异步拷到显存。
   - 训练时直接在显存里随机取小批次，训练循环里没有 CPU 解压、拼 batch 或 Python 逐条处理。
-  - 使用 AMP 混合精度；TTT 按天做向量化 reshape，不再用 nonzero 索引。
+  - 使用 AMP 混合精度；滑窗注意力按块计算。
   - 每轮打印 GPU 利用率和吞吐（token/s）作为监控。
 
 ## 数据
@@ -79,7 +78,7 @@
 env/            fast_env.py, replay_check.py
 data/           crawl.py, replay_db.py, extract.py(→ 增加 token 序列), pack.py
 agent/          features.py, action_tokens.py(新), controller.py, main 打包
-model/          net.py(→ decoder-only: SWA+稀疏全局+TTT+MTP), policy_np.py(numpy KV-cache 解码), pretrain.py(GPU 预训练/中期训练)
+model/          net.py(→ decoder-only: SWA+稀疏全局+MTP), policy_np.py(numpy KV-cache 解码), pretrain.py(GPU 预训练/中期训练)
 rl/             grpo.py(后训练, token 级), rollout.py, league.py, rule_adversaries.py(仅 RL 阶段)
 notebooks/      replay_db / extract(CPU) / pretrain(GPU) / rl(GPU) 的 Kaggle kernel 构建器
 submit/         pack.py
