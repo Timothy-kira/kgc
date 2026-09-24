@@ -1,0 +1,226 @@
+"""GPU pre-training / mid-training of the decoder-only (DeepSeek-V4.1-style) policy on ladder replays.
+
+Distillation objective: next-token prediction of the players' actual action tokens (weighted by rating
+and outcome), + value head (final win / money diff) + MTP + DeepSeek-V3.2-style indexer KL.
+
+GPU-utilisation design
+  * CPU work (npz decompression, index arithmetic) runs in background threads that keep a queue of
+    ready batches in pinned memory; host->device copies are non_blocking.
+  * Tile expansion to quadrant features happens on the GPU; AMP (bf16 if supported, else fp16+GradScaler).
+  * Random step-crops of each trajectory (--crop_steps) give many distinct long sequences per epoch.
+
+python -m model.train_seq --data "<glob of seq_*.npz>" --out ckpt_dir --stage pre
+python -m model.train_seq --data ... --stage mid --init ckpt_dir/pre.pt --min_score 2800
+"""
+import argparse
+import glob
+import json
+import math
+import os
+import queue
+import random
+import threading
+import time
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+
+from agent.obs_tokens import OBS_TYPES
+from data.seq_extract import load_trajs
+from model.dsv41 import ModelArgs, Transformer
+from model.seq_batch import collate, obs_feats
+
+
+def crop(tr, crop_steps, rng):
+    T = len(tr["prod"])
+    if not crop_steps or T <= crop_steps:
+        return tr
+    s0 = rng.randrange(0, T - crop_steps + 1)
+    s1 = s0 + crop_steps
+    off = tr["act_off"]
+    a0, a1 = off[s0], off[s1]
+    out = {k: tr[k][s0:s1] for k in ("prod", "glob", "tiles", "units")}
+    out["act"] = tr["act"][a0:a1]
+    out["act_off"] = off[s0:s1 + 1] - a0
+    for k in ("win", "diff", "score"):
+        out[k] = tr[k]
+    return out
+
+
+class Loader:
+    """Background producer: files -> trajectories (shuffle buffer) -> collated pinned batches."""
+
+    def __init__(self, files, batch, min_score, crop_steps, device, epochs=10 ** 9, seed=0, n_threads=3, qsize=6):
+        self.files, self.batch, self.min_score = list(files), batch, min_score
+        self.crop_steps, self.device, self.epochs = crop_steps, device, epochs
+        self.q = queue.Queue(maxsize=qsize)
+        self.traj_q = queue.Queue(maxsize=64)
+        self.stop = False
+        self.rng = random.Random(seed)
+        threading.Thread(target=self._files, daemon=True).start()
+        for i in range(n_threads):
+            threading.Thread(target=self._batches, args=(seed + i + 1,), daemon=True).start()
+
+    def _files(self):
+        for ep in range(self.epochs):
+            fs = self.files[:]
+            self.rng.shuffle(fs)
+            for f in fs:
+                try:
+                    trs = [t for t in load_trajs(f) if t["score"] >= self.min_score]
+                except Exception as e:
+                    print("load failed", f, e, flush=True)
+                    continue
+                self.rng.shuffle(trs)
+                for t in trs:
+                    self.traj_q.put(t)
+        self.traj_q.put(None)
+
+    def _batches(self, seed):
+        rng = random.Random(seed)
+        buf = []
+        while not self.stop:
+            t = self.traj_q.get()
+            if t is None:
+                self.traj_q.put(None)
+                self.q.put(None)
+                return
+            buf.append(crop(t, self.crop_steps, rng))
+            if len(buf) >= self.batch:
+                b = collate(buf[:self.batch], device="cpu")
+                if self.device.startswith("cuda"):
+                    b = {k: v.pin_memory() for k, v in b.items()}
+                self.q.put(b)
+                buf = buf[self.batch:]
+
+    def __iter__(self):
+        while True:
+            b = self.q.get()
+            if b is None:
+                return
+            yield {k: v.to(self.device, non_blocking=True) for k, v in b.items()}
+
+
+def gpu_util():
+    try:
+        return torch.cuda.utilization()
+    except Exception:
+        return -1
+
+
+def compute_loss(net, b, dtype, coefs):
+    feats = obs_feats(b, dtype)
+    logits, value, mtp_logits, aux = net.forward_train(b["ids"], feats, b["otype"], b["tgt_pos"], b["tgt_ids"],
+                                                       b["val_pos"], b["mtp_pos"], None, b["mtp_ids"])
+    ce = F.cross_entropy(logits.float(), b["tgt_ids"], reduction="none")
+    w = b["tgt_w"]
+    ce_w = (ce * w).sum() / w.sum()
+    vw = F.binary_cross_entropy_with_logits(value[:, 0].float(), b["val_tgt"][:, 0])
+    vd = F.mse_loss(value[:, 1].float(), b["val_tgt"][:, 1])
+    mtp = F.cross_entropy(mtp_logits.float(), b["mtp_ids"]) if mtp_logits is not None else torch.zeros((), device=ce.device)
+    loss = ce_w + coefs["value"] * (vw + 0.1 * vd) + coefs["mtp"] * mtp + coefs["index"] * aux
+    with torch.no_grad():
+        pred = logits.argmax(-1)
+        acc = (pred == b["tgt_ids"]).float().mean()
+    return loss, dict(ce=float(ce_w), acc=float(acc), vwin=float(vw), vdiff=float(vd), mtp=float(mtp), idx=float(aux),
+                      ntok=int(b["tgt_ids"].numel()), seq=int(b["ids"].numel()))
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--data", required=True, help="glob(s) of seq_*.npz, comma separated")
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--stage", choices=["pre", "mid"], default="pre")
+    ap.add_argument("--init", default=None)
+    ap.add_argument("--min_score", type=float, default=None)
+    ap.add_argument("--epochs", type=int, default=2)
+    ap.add_argument("--lr", type=float, default=None)
+    ap.add_argument("--batch", type=int, default=4)
+    ap.add_argument("--accum", type=int, default=1)
+    ap.add_argument("--crop_steps", type=int, default=240)
+    ap.add_argument("--val_files", type=int, default=2)
+    ap.add_argument("--max_hours", type=float, default=11.0)
+    ap.add_argument("--log_every", type=int, default=20)
+    ap.add_argument("--save_every", type=int, default=500)
+    ap.add_argument("--dim", type=int, default=128)
+    ap.add_argument("--n_layers", type=int, default=6)
+    a = ap.parse_args()
+    torch.backends.cuda.matmul.allow_tf32 = True
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    ms = a.min_score if a.min_score is not None else (1800 if a.stage == "pre" else 2800)
+    lr = a.lr or (1e-3 if a.stage == "pre" else 2e-4)
+    files = sorted(sum([glob.glob(g) for g in a.data.split(",")], []))
+    random.Random(0).shuffle(files)
+    val, train = files[:a.val_files], files[a.val_files:]
+    os.makedirs(a.out, exist_ok=True)
+    args = ModelArgs(obs_types=OBS_TYPES, dim=a.dim, n_layers=a.n_layers,
+                     compress_ratios=tuple([0] + [2] * ((a.n_layers - 2) // 2) + [1] * (a.n_layers - 2 - (a.n_layers - 2) // 2) + [0, 0]),
+                     kv_source_layers=(1, 1 + (a.n_layers - 2) // 2), index_source_layers=(1, 1 + (a.n_layers - 2) // 2))
+    json.dump(args.__dict__, open(os.path.join(a.out, "model_args.json"), "w"), default=list)
+    net = Transformer(args).to(device)
+    if a.init:
+        sd = torch.load(a.init, map_location=device)
+        print("init", net.load_state_dict(sd, strict=False), flush=True)
+    n_params = sum(p.numel() for p in net.parameters())
+    print(f"device={device} params={n_params} train_files={len(train)} val_files={len(val)} min_score={ms}", flush=True)
+    amp_dtype = torch.bfloat16 if (device == "cuda" and torch.cuda.is_bf16_supported()) else torch.float16
+    use_amp = device == "cuda"
+    scaler = torch.amp.GradScaler("cuda", enabled=use_amp and amp_dtype == torch.float16)
+    opt = torch.optim.AdamW(net.parameters(), lr=lr, betas=(0.9, 0.95), weight_decay=0.05)
+    coefs = {"value": 0.2, "mtp": 0.3, "index": 0.1}
+    loader = Loader(train, a.batch, ms, a.crop_steps, device, epochs=a.epochs)
+    deadline = time.time() + a.max_hours * 3600
+    t0, tl = time.time(), time.time()
+    step, tokens, seq_tokens = 0, 0, 0
+    warm = 200
+    est_total = max(1000, int(a.epochs * len(train) * 400 / a.batch))   # rough: ~400 trajs per file
+    net.train()
+    for i, b in enumerate(loader):
+        cur_lr = lr * min(1.0, (step + 1) / warm) * (0.1 + 0.9 * 0.5 * (1 + math.cos(math.pi * min(1.0, step / est_total))))
+        for g in opt.param_groups:
+            g["lr"] = cur_lr
+        with torch.autocast(device_type="cuda", dtype=amp_dtype, enabled=use_amp):
+            loss, st = compute_loss(net, b, amp_dtype if use_amp else torch.float32, coefs)
+        scaler.scale(loss / a.accum).backward()
+        if (i + 1) % a.accum == 0:
+            scaler.unscale_(opt)
+            torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)
+            scaler.step(opt)
+            scaler.update()
+            opt.zero_grad(set_to_none=True)
+            net.update_gate_bias()
+            step += 1
+        tokens += st["ntok"]
+        seq_tokens += st["seq"]
+        if step % a.log_every == 0 and (i + 1) % a.accum == 0:
+            dt = time.time() - tl
+            print(json.dumps({"step": step, "lr": round(cur_lr, 6), **{k: round(v, 4) if isinstance(v, float) else v
+                                                                          for k, v in st.items()},
+                              "seq_tok_per_s": round(seq_tokens / max(dt, 1e-6)), "gpu_util": gpu_util(),
+                              "queue": loader.q.qsize(), "mem_gb": round(torch.cuda.max_memory_allocated() / 1e9, 2)
+                              if device == "cuda" else 0, "elapsed_min": round((time.time() - t0) / 60, 1)}), flush=True)
+            tl, seq_tokens = time.time(), 0
+        if step and step % a.save_every == 0 and (i + 1) % a.accum == 0:
+            torch.save(net.state_dict(), os.path.join(a.out, f"{a.stage}.pt"))
+        if time.time() > deadline:
+            break
+    loader.stop = True
+    torch.save(net.state_dict(), os.path.join(a.out, f"{a.stage}.pt"))
+    # validation
+    net.eval()
+    vl = Loader(val, a.batch, ms, a.crop_steps, device, epochs=1, seed=123)
+    vs = []
+    with torch.no_grad():
+        for j, b in enumerate(vl):
+            with torch.autocast(device_type="cuda", dtype=amp_dtype, enabled=use_amp):
+                vs.append(compute_loss(net, b, amp_dtype if use_amp else torch.float32, coefs)[1])
+            if j >= 30:
+                break
+    if vs:
+        print("VAL", json.dumps({k: round(float(np.mean([v[k] for v in vs])), 4) for k in vs[0]}), flush=True)
+    print("saved", os.path.join(a.out, f"{a.stage}.pt"), flush=True)
+
+
+if __name__ == "__main__":
+    main()
