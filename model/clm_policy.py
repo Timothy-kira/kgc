@@ -85,8 +85,9 @@ class CLMPolicy(Transformer):
         super().__init__(args)
         del self.head                                          # no open-vocabulary LM head
         self.action_enc = ActionEncoder(args.dim)
-        self.state_head = make_head(args.dim, head_width, head_depth, proj, "gelu", True, True)
-        self.action_head = make_head(args.dim, head_width, head_depth, proj, "gelu", True, True)
+        # CLM training defaults: gelu, layernorm=True, residual=False, depth 3
+        self.state_head = make_head(args.dim, head_width, head_depth, proj, "gelu", True, False)
+        self.action_head = make_head(args.dim, head_width, head_depth, proj, "gelu", True, False)
         self.logit_scale = nn.Parameter(torch.tensor(math.log(1 / 0.07)))
         self.register_buffer("unit_desc", torch.from_numpy(UNIT_DESC), persistent=False)
         self.register_buffer("market_desc", torch.from_numpy(MARKET_DESC), persistent=False)
