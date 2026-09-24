@@ -152,7 +152,8 @@ def main():
     lr = a.lr or (1e-3 if a.stage == "pre" else 2e-4)
     files = sorted(sum([glob.glob(g) for g in a.data.split(",")], []))
     random.Random(0).shuffle(files)
-    val, train = files[:a.val_files], files[a.val_files:]
+    nv = a.val_files if len(files) > a.val_files else 0
+    val, train = files[:nv], files[nv:]
     os.makedirs(a.out, exist_ok=True)
     args = ModelArgs(obs_types=OBS_TYPES, dim=a.dim, n_layers=a.n_layers,
                      compress_ratios=tuple([0] + [2] * ((a.n_layers - 2) // 2) + [1] * (a.n_layers - 2 - (a.n_layers - 2) // 2) + [0, 0]),
@@ -208,6 +209,9 @@ def main():
     loader.stop = True
     torch.save(net.state_dict(), os.path.join(a.out, f"{a.stage}.pt"))
     # validation
+    if not val:
+        print("saved", os.path.join(a.out, f"{a.stage}.pt"), flush=True)
+        return
     net.eval()
     vl = Loader(val, a.batch, ms, a.crop_steps, device, epochs=1, seed=123)
     vs = []

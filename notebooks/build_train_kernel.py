@@ -16,7 +16,7 @@ init = glob.glob("/kaggle/input/**/ckpt/__INIT__.pt", recursive=True)
 cmd = [sys.executable, "-m", "model.train_seq", "--data", ",".join(sorted(set(os.path.dirname(f) for f in files))
        and [d + "/seq_*.npz" for d in sorted(set(os.path.dirname(f) for f in files))]),
        "--out", "/kaggle/working/ckpt", "--stage", "__STAGE__", "--max_hours", "__HOURS__",
-       "--batch", "__BATCH__", "--crop_steps", "__CROP__", "--epochs", "__EPOCHS__"]
+       "--batch", "__BATCH__", "--crop_steps", "__CROP__", "--epochs", "__EPOCHS__"] + "__EXTRA__".split()
 if init:
     cmd += ["--init", init[0]]
 print(" ".join(cmd), flush=True)
@@ -30,8 +30,8 @@ with open("/kaggle/working/train.log", "w") as log:
 
 
 def build(kdir, owner, data_ds, stage, hours="10.5", init="pre", batch="4", crop="240", epochs="3", slug=None,
-          init_kernel=None):
-    body = (BODY.replace("__STAGE__", stage).replace("__HOURS__", hours).replace("__INIT__", init)
+          init_kernel=None, extra=""):
+    body = (BODY.replace("__EXTRA__", extra).replace("__STAGE__", stage).replace("__HOURS__", hours).replace("__INIT__", init)
             .replace("__BATCH__", batch).replace("__CROP__", crop).replace("__EPOCHS__", epochs))
     body = body.replace('",".join(sorted(set(os.path.dirname(f) for f in files))\n       and [d + "/seq_*.npz" for d in sorted(set(os.path.dirname(f) for f in files))])',
                         '",".join(d + "/seq_*.npz" for d in sorted(set(os.path.dirname(f) for f in files)))')
