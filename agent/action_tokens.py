@@ -84,8 +84,36 @@ def _order(o):
     return [TOK["M:" + op]]
 
 
-def encode(action):
-    """Action dict -> token ids (starting with <ACT>, ending with <EOS>)."""
+def _unit_safe(u):
+    try:
+        return _unit(u)
+    except TokenizeError:
+        return [TOK["<NONE>"]]           # unknown / malformed unit op: a no-op in the environment
+
+
+def _order_safe(o):
+    try:
+        return _order(o)
+    except (TokenizeError, TypeError, ValueError):
+        return [TOK["<EMPTY>"]]          # unknown / malformed order: a no-op that still occupies its index
+
+
+def encode(action, strict=False):
+    """Action dict -> token ids (starting with <ACT>, ending with <EOS>).
+    Non-strict mode maps anything the environment treats as a no-op onto the equivalent no-op token."""
+    if not strict:
+        if not isinstance(action, dict):
+            action = {"farmer": ["PASS"], "hands": [], "market": []}
+        out = [TOK["<ACT>"], TOK["<FARMER>"]] + _unit_safe(action.get("farmer"))
+        hands = action.get("hands") if isinstance(action.get("hands"), list) else []
+        for h in hands:
+            out += [TOK["<HAND>"]] + _unit_safe(h)
+        out.append(TOK["<MARKET>"])
+        market = action.get("market") if isinstance(action.get("market"), list) else []
+        for o in market:
+            out += _order_safe(o)
+        out.append(TOK["<EOS>"])
+        return out
     if action == "BASE":
         return [TOK["<ACT>"], TOK["<BASE>"], TOK["<EOS>"]]
     if not isinstance(action, dict):
