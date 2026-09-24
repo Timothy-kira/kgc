@@ -28,6 +28,21 @@ def my_kernels():
     return [r for r in refs if r.split("/")[-1].startswith(PREFIXES)]
 
 
+def report_running():
+    """Before every push: show which notebooks on the account are currently running."""
+    out = _run(["kaggle", "kernels", "list", "--mine", "--page-size", "100", "--csv"]).stdout.splitlines()
+    refs = [l.split(",")[0] for l in out[1:] if l.strip()]
+    running = []
+    for r in refs:
+        st = _run(["kaggle", "kernels", "status", r]).stdout
+        m = re.search(r"KernelWorkerStatus\.(\w+)", st)
+        s = m.group(1) if m else "?"
+        if s in ("RUNNING", "QUEUED", "NEW"):
+            running.append((r, s))
+    print("running notebooks:", running or "none", flush=True)
+    return running
+
+
 def clean(keep_outputs=None):
     for ref in my_kernels():
         if keep_outputs:
@@ -42,7 +57,10 @@ def clean(keep_outputs=None):
 def replace(kernel_dir, keep_outputs=None):
     meta = json.load(open(os.path.join(kernel_dir, "kernel-metadata.json")))
     assert meta["id"].split("/")[-1].startswith(PREFIXES), "GPU kernels must use a kgc-train*/kgc-gpu* slug"
+    report_running()
     clean(keep_outputs)
+    still = [r for r, _ in report_running() if r.split("/")[-1].startswith(PREFIXES)]
+    assert not still, f"our GPU kernels still running: {still}"
     r = _run(["kaggle", "kernels", "push", "-p", kernel_dir])
     print((r.stdout or r.stderr).strip()[-300:])
 
@@ -64,5 +82,7 @@ if __name__ == "__main__":
         replace(sys.argv[2], keep)
     elif cmd == "clean":
         clean(keep)
+    elif cmd == "running":
+        report_running()
     elif cmd == "quota":
         quota()
