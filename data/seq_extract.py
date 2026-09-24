@@ -67,17 +67,21 @@ def save_trajs(path, trajs):
 
 
 def load_trajs(path):
-    z = np.load(path)
-    t_off, a_off = z["t_off"], z["a_off"]
+    """Decompress every array ONCE (each NpzFile[key] access re-reads the whole array) and return
+    per-trajectory copies (so no slice keeps the big arrays alive)."""
+    with np.load(path) as z:
+        d = {k: z[k] for k in z.files}
+    t_off, a_off, ao = d["t_off"], d["a_off"], d["act_off"]
     K = len(t_off) - 1
-    ao = z["act_off"]
     out = []
     for i in range(K):
         s, e = t_off[i], t_off[i + 1]
         T = e - s
-        out.append(dict(prod=z["prod"][s:e], glob=z["glob"][s:e], tiles=z["tiles"][s:e], units=z["units"][s:e],
-                        act=z["act"][a_off[i]:a_off[i + 1]], act_off=ao[s + i: s + i + T + 1],
-                        win=float(z["win"][i]), diff=float(z["diff"][i]), score=float(z["score"][i])))
+        out.append(dict(prod=d["prod"][s:e].copy(), glob=d["glob"][s:e].copy(), tiles=d["tiles"][s:e].copy(),
+                        units=d["units"][s:e].copy(), act=d["act"][a_off[i]:a_off[i + 1]].copy(),
+                        act_off=ao[s + i: s + i + T + 1].copy(),
+                        win=float(d["win"][i]), diff=float(d["diff"][i]), score=float(d["score"][i])))
+    del d
     return out
 
 
