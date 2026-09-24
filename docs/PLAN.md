@@ -14,7 +14,7 @@
 - **用户的最新要求**：
   1. 训练严格按 **预训练 → 中期训练 → 后训练（RL）** 的顺序进行。RL 必须在大规模 replay 蒸馏之后才开始，之前提前启动的 GRPO 已停止。
   2. 预训练和中期训练**只用大规模 replay 做蒸馏**，不用手写规则对手，也不用我们自己执行层的对局数据。
-  3. **不要分类头**，模型直接**解码输出动作 token**。
+  3. **不要分类头**，采用 **decoder-only** 统一序列模型（参考 DeepSeek），直接解码输出动作 token，不设独立编码器。
   4. 预训练可以用 GPU，但必须保证 GPU 利用率高，不能卡在 CPU 数据加载上。RL 也可以用 GPU。其他情况非必要不用 GPU。
 
 ## 关键发现（影响设计）
@@ -23,23 +23,24 @@
 - metav4 打 metav4 是确定性平局；手写的卖出偏离规则都会输。
 - **open-loop 回放 top 选手的动作不能当对手用**：双方共享随机数流（杂草生成、商店解锁），一方换人，对方的局面就变了。所以 replay 只用于蒸馏训练和分析，评估必须用闭环 agent。
 
-## 模型：编码器 + TTT 时间记忆 + 自回归动作解码器
-- **动作 token 化**（`agent/action_tokens.py`）：每步的完整动作编码成一串 token。
-  - 例：`<FARMER> PLANT WHEAT <HAND> NORTH … <MARKET> SELL MELON 7 BUY_PRODUCT WHEAT 20 <EOS>`
-  - 词表：单位操作、物品、数量（0–99 精确值，外加 ≥100 的分档和 999 表示全部）、分隔符、`<BASE>`（照抄执行层动作的兜底 token）。
-  - 要求在 replay 上**编码→解码后 100% 还原原始动作**，以此作为验收。
-- **编码器（每步一次）**：实体 Transformer。
-  - 输入 token：双方 200 个地块（带 2D 位置和本方/对方编码）、9 个商品、全局、单位位置与背包。
-  - d=128 左右，2–3 层。
-- **时间主干**：24 步滑窗注意力（1 天），加 In-Place TTT 快速权重层。
-  - 快速权重每天结束时用闭式梯度更新一次。
-  - 自监督目标：当天各商品的市场净流量和价格变化，都可以在对局中直接观测到。
-  - 初始快速权重通过元学习得到。
-- **解码器**：小型因果 Transformer，对编码器和时间主干的输出做交叉注意力，自回归生成动作 token。
-  - 解码时按语法掩码，只允许合法 token，例如 SELL 后只能接物品再接数量，移动或种植必须合法。
-  - 推理用 KV 缓存，每步约 70 个 token，numpy 实现，目标每步 <100ms。
-- **价值头**：保留，预测终局胜率和资金差，供 RL 做信用分配。
-- **numpy 推理版与 torch 训练版**必须逐位对拍一致，沿用现有 `tools/test_equivalence.py` 的做法。
+## 模型：Decoder-only 统一序列（参考 DeepSeek，无独立编码器）
+- **一局 = 一条 token 序列**：每步依次是 `[观测 token][动作 token]`。一局约 720 × ~70 ≈ 5 万 token。
+- **观测 token（每步约 30 个）**：连续特征经线性投影直接得到 token 嵌入，类似 VLM 的 patch embedding，不再使用编码器堆栈。
+  - 9 个商品 token、1 个全局 token
+  - 双方各 4 个象限 token（每个象限 25 格特征展平后投影）
+  - 单位 token（农民和雇工的位置与背包）
+  - 另加类型嵌入和步内位置嵌入
+- **动作 token**（`agent/action_tokens.py`）：离散词表，包括单位操作、物品、数量（0–99 精确值，≥100 的分档，999 表示全部）、分隔符 `<FARMER>/<HAND>/<MARKET>/<EOS>`，以及兜底 token `<BASE>`。
+  - 验收要求：在 replay 上编码→解码 100% 还原原始动作。
+- **主干（混合注意力 + TTT + MTP）**：
+  - 大部分层：滑窗注意力（SWA），窗口约 2 步，即约 160 个 token。
+  - 少数层：token 级稀疏全局注意力（DeepSeek DSA / HySparse2 的思路），从整局历史中选 top-k 个关键 token，并强制保留近期窗口。
+  - TTT 快速权重层（In-Place TTT）：每天结束时用闭式梯度更新，把整局历史压缩进权重。自监督目标是当天市场净流量和价格变化，初始快速权重通过元学习得到。
+  - MTP 多 token 预测（DeepSeek-V3）：训练时作为辅助损失；推理时可用于投机解码加速。
+  - 价值头：预测终局胜率和资金差，供 RL 使用。
+- **损失**：只在动作 token 上计算 next-token 交叉熵（蒸馏），另加价值、TTT 自监督和 MTP 辅助损失。
+- **推理**：numpy 实现，带 KV 缓存。观测 token 一次性并行 prefill，动作 token 逐个解码，按语法掩码只生成合法动作。目标每步 <100ms。
+- numpy 推理版与 torch 训练版逐位对拍一致。
 
 ## 训练三阶段
 1. **预训练（GPU，全量 replay 蒸馏）**
@@ -78,7 +79,7 @@
 env/            fast_env.py, replay_check.py
 data/           crawl.py, replay_db.py, extract.py(→ 增加 token 序列), pack.py
 agent/          features.py, action_tokens.py(新), controller.py, main 打包
-model/          net.py(→ 编码器+TTT+解码器), policy_np.py(numpy 解码器), pretrain.py(GPU 预训练/中期训练)
+model/          net.py(→ decoder-only: SWA+稀疏全局+TTT+MTP), policy_np.py(numpy KV-cache 解码), pretrain.py(GPU 预训练/中期训练)
 rl/             grpo.py(后训练, token 级), rollout.py, league.py, rule_adversaries.py(仅 RL 阶段)
 notebooks/      replay_db / extract(CPU) / pretrain(GPU) / rl(GPU) 的 Kaggle kernel 构建器
 submit/         pack.py
