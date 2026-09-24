@@ -11,7 +11,8 @@ DEFAULT_FILES = ["agent/__init__.py", "agent/action_tokens.py", "agent/features.
                  "data/__init__.py", "data/crawl.py", "data/replay_db.py", "data/seq_extract.py",
                  "env/__init__.py", "env/fast_env.py", "env/replay_check.py",
                  "model/__init__.py", "model/dsv41.py", "model/seq_batch.py", "model/train_seq.py",
-                 "agent/action_space.py", "model/clm_policy.py", "model/clm_batch.py", "model/train_clm.py"]
+                 "agent/action_space.py", "model/clm_policy.py", "model/clm_batch.py", "model/train_clm.py",
+                 "agent/clm_agent.py", "tools/bench_latency.py"]
 
 HEADER = r'''
 import os, subprocess, sys

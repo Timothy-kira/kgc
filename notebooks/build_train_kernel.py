@@ -25,6 +25,29 @@ cmd = launcher + ["-m", "__MODULE__", "--data", ",".join(sorted(set(os.path.dirn
 if init:
     cmd += ["--init", init[0]]
 print(" ".join(cmd), flush=True)
+
+# ---- monitors (appear in the live log `kaggle kernels logs -f`):
+#  * GPU utilisation / memory every 60 s
+#  * inference latency vs. competition limits (CPU, 2 threads, full game) for every new checkpoint
+import threading, time as _time
+def _gpu_monitor():
+    while True:
+        r = subprocess.run(["nvidia-smi", "--query-gpu=index,utilization.gpu,memory.used,memory.total",
+                            "--format=csv,noheader"], capture_output=True, text=True)
+        print("GPU_MON", r.stdout.strip().replace("\n", " | "), flush=True)
+        _time.sleep(60)
+def _latency_monitor():
+    last = 0.0
+    ck = "/kaggle/working/ckpt/__STAGE__.pt"
+    while True:
+        _time.sleep(120)
+        if os.path.exists(ck) and os.path.getmtime(ck) > last + 1:
+            last = os.path.getmtime(ck)
+            r = subprocess.run([sys.executable, "-m", "tools.bench_latency", ck, "/kaggle/working/ckpt/model_args.json",
+                                "719", "2"], capture_output=True, text=True, env=dict(os.environ, OMP_NUM_THREADS="2"))
+            print("LATENCY", (r.stdout.strip().splitlines() or [r.stderr[-300:]])[-1], flush=True)
+threading.Thread(target=_gpu_monitor, daemon=True).start()
+threading.Thread(target=_latency_monitor, daemon=True).start()
 with open("/kaggle/working/train.log", "w") as log:
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     for line in p.stdout:
