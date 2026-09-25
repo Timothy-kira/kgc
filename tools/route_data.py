@@ -65,23 +65,78 @@ class Tape:
 
 
 TAPES = []
+POOLS = {}                  # category -> list of tapes (see load_mix)
+OUR_SUBS = {56553173}       # our ladder submissions (v4a); their lost games are replayed as "loss" jobs
+
+
+def _tape_rows(db, e, opp_side):
+    from data.replay_db import _unz
+    out = []
+    for r, k in zip(e.itertuples(), opp_side):
+        try:
+            row = db.row(int(r.episode_id))
+            out.append((int(r.episode_id), int(r.seed), json.loads(row["config"]), _unz(row["actions_zstd"]), int(k)))
+        except Exception:
+            continue
+    return out
 
 
 def load_tapes(db_dir, n=400, min_score=2700):
-    from data.replay_db import ReplayDB, _unz
+    from data.replay_db import ReplayDB
     db = ReplayDB(db_dir)
     e = db.episodes()
     e = e[e[["updated_score_0", "updated_score_1"]].max(axis=1) >= min_score].sort_values("episode_id").tail(n)
-    out = []
-    for r in e.itertuples():
-        row = db.row(int(r.episode_id))
-        k = 0 if (r.updated_score_0 or 0) >= (r.updated_score_1 or 0) else 1       # the stronger player is the opponent
-        out.append((int(r.episode_id), int(r.seed), json.loads(row["config"]), _unz(row["actions_zstd"]), k))
-    return out
+    side = [0 if (a or 0) >= (b or 0) else 1 for a, b in zip(e.updated_score_0, e.updated_score_1)]
+    return _tape_rows(db, e, side)
+
+
+def load_mix(db_dir, n=400):
+    """Opponent pools for the RL data mix (docs/PLAN_v4.1.md, "RL data mix"):
+    loss = opponents that beat one of our submissions (same seed, their tape), near = ladder opponents rated
+    2200-2600 (our rating band), top = 2700+ players."""
+    from data.replay_db import ReplayDB
+    db = ReplayDB(db_dir)
+    e = db.episodes().sort_values("episode_id")
+    pools = {}
+    ours0, ours1 = e.submission_id_0.isin(OUR_SUBS), e.submission_id_1.isin(OUR_SUBS)
+    lost0 = ours0 & (e.reward_0.fillna(0) <= e.reward_1.fillna(0))
+    lost1 = ours1 & (e.reward_1.fillna(0) <= e.reward_0.fillna(0))
+    L = e[lost0 | lost1].tail(n)
+    pools["loss"] = _tape_rows(db, L, [1 if x else 0 for x in lost0[L.index]])
+    s0, s1 = e.updated_score_0.fillna(0), e.updated_score_1.fillna(0)
+    near = e[((s0 >= 2200) & (s0 <= 2600)) | ((s1 >= 2200) & (s1 <= 2600))].tail(n)
+    pools["near"] = _tape_rows(db, near, [0 if 2200 <= a <= 2600 else 1 for a in near.updated_score_0.fillna(0)])
+    top = e[(s0 >= 2700) | (s1 >= 2700)].tail(n)
+    pools["top"] = _tape_rows(db, top, [0 if (a or 0) >= (b or 0) else 1 for a, b in zip(top.updated_score_0, top.updated_score_1)])
+    return pools
+
+
+def _mix():
+    spec = os.environ.get("ROUTE_MIX", "")
+    if not spec:
+        return None
+    w = [(k, float(v)) for k, v in (x.split("=") for x in spec.split(","))]
+    w = [(k, v) for k, v in w if v > 0 and (k == "live" or POOLS.get(k))]
+    tot = sum(v for _, v in w)
+    return [(k, v / tot) for k, v in w]
 
 
 def job_spec(j):
     """Deterministic job -> (kind, opponent, seed, seat, cfg, tape)."""
+    mix = _mix()
+    if mix:
+        u = ((j * 2654435761) % 2 ** 32) / 2 ** 32
+        acc = 0.0
+        for cat, wt in mix:
+            acc += wt
+            if u < acc:
+                break
+        if cat != "live":
+            pool = POOLS[cat]
+            eid, seed, cfg, acts, k = pool[(j // 7) % len(pool)]
+            return cat, f"{cat}:{eid}", seed, 1 - k, {kk: v for kk, v in cfg.items() if v is not None}, Tape(acts, k)
+        opp = LIVE[(j // 2) % len(LIVE)]
+        return "live", opp, 20000 + j, j % 2, None, None
     seat = j % 2
     if TAPES and j % 3 == 2:
         eid, seed, cfg, acts, k = TAPES[(j // 3) % len(TAPES)]
@@ -138,8 +193,12 @@ def main():
     out, a, b = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
     procs = int(sys.argv[4]) if len(sys.argv) > 4 else 4
     if len(sys.argv) > 5:
-        TAPES.extend(load_tapes(sys.argv[5]))
-        print("tapes", len(TAPES), flush=True)
+        if os.environ.get("ROUTE_MIX"):
+            POOLS.update(load_mix(sys.argv[5]))
+            print("pools", {k: len(v) for k, v in POOLS.items()}, "mix", _mix(), flush=True)
+        else:
+            TAPES.extend(load_tapes(sys.argv[5]))
+            print("tapes", len(TAPES), flush=True)
     done = set()
     if os.path.exists(out):
         done = {json.loads(l)["job"] for l in open(out) if l.strip()}
