@@ -1,0 +1,1289 @@
+{
+ "Boey": {
+  "games": 120,
+  "win_rate": 0.49166666666666664,
+  "final_money": 94308.95,
+  "day0_orders_per_game": {
+   "BUY_PRODUCT:WHEAT": 40.3,
+   "SELL:WHEAT": 38.2,
+   "NOOP": 27.5,
+   "BUY_SEED:WHEAT": 11.8,
+   "BUY_SEED:MELON": 6.8,
+   "BUY_PRODUCT:FERTILIZER": 5.9,
+   "SELL:FERTILIZER": 5.8,
+   "HIRE": 4.5,
+   "BUY_ANIMAL:COW": 2.6,
+   "BUY_ANIMAL:SHEEP": 2.5
+  },
+  "land_day": [
+   6.0,
+   8.3,
+   null
+  ],
+  "land_frac": [
+   1.0,
+   0.65,
+   0.0
+  ],
+  "crops_d0-9": {
+   "WHEAT": 6.4,
+   "CARROT": 0.2,
+   "TOMATO": 0.0,
+   "STRAWBERRY": 9.7,
+   "MELON": 10.6
+  },
+  "animals_d0-9": {
+   "GOOSE": 1.6,
+   "COW": 4.0,
+   "SHEEP": 3.7
+  },
+  "hands_d0-9": 6.9,
+  "crops_d10-19": {
+   "WHEAT": 16.6,
+   "CARROT": 2.9,
+   "TOMATO": 0.8,
+   "STRAWBERRY": 23.6,
+   "MELON": 2.4
+  },
+  "animals_d10-19": {
+   "GOOSE": 4.0,
+   "COW": 6.7,
+   "SHEEP": 7.3
+  },
+  "hands_d10-19": 11.0,
+  "crops_d20-29": {
+   "WHEAT": 21.8,
+   "CARROT": 8.5,
+   "TOMATO": 1.2,
+   "STRAWBERRY": 8.3,
+   "MELON": 1.0
+  },
+  "animals_d20-29": {
+   "GOOSE": 4.2,
+   "COW": 6.5,
+   "SHEEP": 8.1
+  },
+  "hands_d20-29": 10.8,
+  "sell_volume_share": {
+   "WHEAT": 0.383,
+   "FERTILIZER": 0.28,
+   "EGG": 0.119,
+   "CARROT": 0.071,
+   "MILK": 0.058,
+   "WOOL": 0.031,
+   "STRAWBERRY": 0.029,
+   "MELON": 0.026,
+   "TOMATO": 0.003
+  },
+  "sell_price_vs_base": {
+   "CARROT": 1.29,
+   "EGG": 0.74,
+   "FERTILIZER": 4.02,
+   "MELON": 0.98,
+   "MILK": 0.76,
+   "STRAWBERRY": 1.13,
+   "TOMATO": 1.48,
+   "WHEAT": 1.19,
+   "WOOL": 0.68
+  },
+  "sell_qty_median": {
+   "CARROT": 4.0,
+   "EGG": 4.0,
+   "FERTILIZER": 4.0,
+   "MELON": 5.0,
+   "MILK": 3.0,
+   "STRAWBERRY": 3.0,
+   "TOMATO": 7.0,
+   "WHEAT": 5.0,
+   "WOOL": 3.0
+  },
+  "sell_hour_share": {
+   "0": 0.032,
+   "1": 0.053,
+   "5": 0.035,
+   "6": 0.03,
+   "7": 0.032,
+   "8": 0.034,
+   "9": 0.04,
+   "10": 0.038,
+   "11": 0.039,
+   "12": 0.04,
+   "13": 0.045,
+   "14": 0.043,
+   "15": 0.045,
+   "16": 0.045,
+   "17": 0.047,
+   "18": 0.048,
+   "19": 0.049,
+   "20": 0.052,
+   "21": 0.053,
+   "22": 0.057,
+   "23": 0.067
+  },
+  "sell_by_5day_block": [
+   0.039,
+   0.094,
+   0.197,
+   0.209,
+   0.215,
+   0.245
+  ]
+ },
+ "Unknown Mother-Goose": {
+  "games": 120,
+  "win_rate": 0.7916666666666666,
+  "final_money": 108805.39166666666,
+  "day0_orders_per_game": {
+   "BUY_SEED:WHEAT": 15.0,
+   "BUY_PRODUCT:WHEAT": 9.0,
+   "SELL:WHEAT": 6.0,
+   "BUY_SEED:MELON": 6.0,
+   "HIRE": 4.0,
+   "BUY_ANIMAL:SHEEP": 3.0,
+   "BUY_ANIMAL:COW": 2.0,
+   "SELL:CARROT": 0.0
+  },
+  "land_day": [
+   6.0,
+   9.0,
+   10.0
+  ],
+  "land_frac": [
+   1.0,
+   1.0,
+   0.95
+  ],
+  "crops_d0-9": {
+   "WHEAT": 6.3,
+   "CARROT": 0.1,
+   "TOMATO": 0.3,
+   "STRAWBERRY": 10.4,
+   "MELON": 9.9
+  },
+  "animals_d0-9": {
+   "GOOSE": 1.0,
+   "COW": 4.1,
+   "SHEEP": 3.5
+  },
+  "hands_d0-9": 6.7,
+  "crops_d10-19": {
+   "WHEAT": 25.7,
+   "CARROT": 5.1,
+   "TOMATO": 12.1,
+   "STRAWBERRY": 26.9,
+   "MELON": 1.9
+  },
+  "animals_d10-19": {
+   "GOOSE": 6.0,
+   "COW": 8.9,
+   "SHEEP": 6.2
+  },
+  "hands_d10-19": 11.7,
+  "crops_d20-29": {
+   "WHEAT": 26.9,
+   "CARROT": 16.2,
+   "TOMATO": 9.9,
+   "STRAWBERRY": 13.0,
+   "MELON": 0.1
+  },
+  "animals_d20-29": {
+   "GOOSE": 5.9,
+   "COW": 7.6,
+   "SHEEP": 5.7
+  },
+  "hands_d20-29": 11.5,
+  "sell_volume_share": {
+   "WHEAT": 0.265,
+   "FERTILIZER": 0.131,
+   "CARROT": 0.126,
+   "STRAWBERRY": 0.107,
+   "EGG": 0.101,
+   "MILK": 0.097,
+   "WOOL": 0.072,
+   "TOMATO": 0.066,
+   "MELON": 0.035
+  },
+  "sell_price_vs_base": {
+   "CARROT": 1.23,
+   "EGG": 0.77,
+   "FERTILIZER": 5.17,
+   "MELON": 1.02,
+   "MILK": 0.75,
+   "STRAWBERRY": 1.01,
+   "TOMATO": 1.17,
+   "WHEAT": 1.13,
+   "WOOL": 0.77
+  },
+  "sell_qty_median": {
+   "CARROT": 9.0,
+   "EGG": 6.0,
+   "FERTILIZER": 1.0,
+   "MELON": 6.0,
+   "MILK": 2.0,
+   "STRAWBERRY": 2.0,
+   "TOMATO": 6.0,
+   "WHEAT": 4.0,
+   "WOOL": 2.0
+  },
+  "sell_hour_share": {
+   "0": 0.159,
+   "1": 0.092,
+   "2": 0.078,
+   "9": 0.034,
+   "13": 0.032,
+   "17": 0.034,
+   "18": 0.033,
+   "21": 0.042,
+   "22": 0.183,
+   "23": 0.045
+  },
+  "sell_by_5day_block": [
+   0.016,
+   0.044,
+   0.153,
+   0.208,
+   0.23,
+   0.349
+  ]
+ },
+ "M & M & P & Q": {
+  "games": 120,
+  "win_rate": 0.7833333333333333,
+  "final_money": 118057.98333333334,
+  "day0_orders_per_game": {
+   "BUY_SEED:WHEAT": 12.7,
+   "BUY_PRODUCT:WHEAT": 6.9,
+   "BUY_SEED:MELON": 5.2,
+   "HIRE": 4.9,
+   "SELL:WHEAT": 4.3,
+   "BUY_ANIMAL:SHEEP": 2.7,
+   "BUY_ANIMAL:COW": 2.4,
+   "BUY_SEED:CARROT": 0.9,
+   "BUY_ANIMAL:GOOSE": 0.0
+  },
+  "land_day": [
+   6.0,
+   8.2,
+   12.7
+  ],
+  "land_frac": [
+   1.0,
+   1.0,
+   0.91
+  ],
+  "crops_d0-9": {
+   "WHEAT": 8.6,
+   "CARROT": 0.7,
+   "TOMATO": 0.0,
+   "STRAWBERRY": 10.2,
+   "MELON": 8.7
+  },
+  "animals_d0-9": {
+   "GOOSE": 1.9,
+   "COW": 4.9,
+   "SHEEP": 3.5
+  },
+  "hands_d0-9": 6.4,
+  "crops_d10-19": {
+   "WHEAT": 22.1,
+   "CARROT": 5.5,
+   "TOMATO": 7.0,
+   "STRAWBERRY": 27.8,
+   "MELON": 5.5
+  },
+  "animals_d10-19": {
+   "GOOSE": 10.1,
+   "COW": 7.5,
+   "SHEEP": 6.0
+  },
+  "hands_d10-19": 11.7,
+  "crops_d20-29": {
+   "WHEAT": 31.5,
+   "CARROT": 15.0,
+   "TOMATO": 10.3,
+   "STRAWBERRY": 11.0,
+   "MELON": 1.7
+  },
+  "animals_d20-29": {
+   "GOOSE": 10.8,
+   "COW": 5.9,
+   "SHEEP": 5.7
+  },
+  "hands_d20-29": 11.6,
+  "sell_volume_share": {
+   "WHEAT": 0.254,
+   "EGG": 0.152,
+   "FERTILIZER": 0.126,
+   "CARROT": 0.11,
+   "STRAWBERRY": 0.102,
+   "MILK": 0.09,
+   "WOOL": 0.066,
+   "TOMATO": 0.053,
+   "MELON": 0.047
+  },
+  "sell_price_vs_base": {
+   "CARROT": 1.24,
+   "EGG": 0.76,
+   "FERTILIZER": 5.57,
+   "MELON": 0.92,
+   "MILK": 0.93,
+   "STRAWBERRY": 1.1,
+   "TOMATO": 1.28,
+   "WHEAT": 1.13,
+   "WOOL": 0.88
+  },
+  "sell_qty_median": {
+   "CARROT": 8.0,
+   "EGG": 8.0,
+   "FERTILIZER": 2.0,
+   "MELON": 6.0,
+   "MILK": 5.0,
+   "STRAWBERRY": 6.0,
+   "TOMATO": 8.0,
+   "WHEAT": 7.0,
+   "WOOL": 5.0
+  },
+  "sell_hour_share": {
+   "0": 0.166,
+   "1": 0.182,
+   "9": 0.05,
+   "21": 0.094,
+   "22": 0.087,
+   "23": 0.24
+  },
+  "sell_by_5day_block": [
+   0.022,
+   0.05,
+   0.142,
+   0.196,
+   0.217,
+   0.373
+  ]
+ },
+ "Majkel1337": {
+  "games": 120,
+  "win_rate": 0.525,
+  "final_money": 108820.80833333333,
+  "day0_orders_per_game": {
+   "BUY_SEED:WHEAT": 9.0,
+   "BUY_SEED:MELON": 9.0,
+   "HIRE": 5.0,
+   "BUY_PRODUCT:WHEAT": 4.0,
+   "BUY_ANIMAL:SHEEP": 3.0,
+   "BUY_ANIMAL:COW": 2.0
+  },
+  "land_day": [
+   6.0,
+   8.1,
+   11.0
+  ],
+  "land_frac": [
+   1.0,
+   1.0,
+   0.2
+  ],
+  "crops_d0-9": {
+   "WHEAT": 8.6,
+   "CARROT": 0.1,
+   "TOMATO": 0.0,
+   "STRAWBERRY": 9.8,
+   "MELON": 10.4
+  },
+  "animals_d0-9": {
+   "GOOSE": 1.2,
+   "COW": 4.2,
+   "SHEEP": 3.3
+  },
+  "hands_d0-9": 6.1,
+  "crops_d10-19": {
+   "WHEAT": 20.8,
+   "CARROT": 3.1,
+   "TOMATO": 4.1,
+   "STRAWBERRY": 28.1,
+   "MELON": 0.6
+  },
+  "animals_d10-19": {
+   "GOOSE": 4.1,
+   "COW": 8.1,
+   "SHEEP": 5.6
+  },
+  "hands_d10-19": 11.1,
+  "crops_d20-29": {
+   "WHEAT": 22.7,
+   "CARROT": 11.7,
+   "TOMATO": 5.5,
+   "STRAWBERRY": 11.4,
+   "MELON": 0.0
+  },
+  "animals_d20-29": {
+   "GOOSE": 4.1,
+   "COW": 7.6,
+   "SHEEP": 5.7
+  },
+  "hands_d20-29": 11.2,
+  "sell_volume_share": {
+   "WHEAT": 0.28,
+   "STRAWBERRY": 0.131,
+   "FERTILIZER": 0.127,
+   "MILK": 0.119,
+   "EGG": 0.092,
+   "CARROT": 0.091,
+   "WOOL": 0.086,
+   "MELON": 0.039,
+   "TOMATO": 0.034
+  },
+  "sell_price_vs_base": {
+   "CARROT": 1.28,
+   "EGG": 0.77,
+   "FERTILIZER": 5.63,
+   "MELON": 1.09,
+   "MILK": 0.78,
+   "STRAWBERRY": 1.05,
+   "TOMATO": 1.31,
+   "WHEAT": 1.2,
+   "WOOL": 0.72
+  },
+  "sell_qty_median": {
+   "CARROT": 3.0,
+   "EGG": 4.0,
+   "FERTILIZER": 2.0,
+   "MELON": 6.0,
+   "MILK": 2.0,
+   "STRAWBERRY": 4.0,
+   "TOMATO": 4.0,
+   "WHEAT": 4.0,
+   "WOOL": 2.0
+  },
+  "sell_hour_share": {
+   "0": 0.102,
+   "1": 0.042,
+   "2": 0.047,
+   "5": 0.037,
+   "9": 0.035,
+   "13": 0.038,
+   "14": 0.04,
+   "16": 0.037,
+   "17": 0.048,
+   "18": 0.095,
+   "19": 0.048,
+   "20": 0.031,
+   "21": 0.08,
+   "22": 0.129,
+   "23": 0.039
+  },
+  "sell_by_5day_block": [
+   0.017,
+   0.06,
+   0.167,
+   0.203,
+   0.221,
+   0.332
+  ]
+ },
+ "DSM": {
+  "games": 120,
+  "win_rate": 0.975,
+  "final_money": 105500.61666666667,
+  "day0_orders_per_game": {
+   "BUY_SEED:WHEAT": 14.3,
+   "BUY_PRODUCT:WHEAT": 9.0,
+   "SELL:WHEAT": 6.0,
+   "BUY_SEED:MELON": 6.0,
+   "HIRE": 4.0,
+   "BUY_ANIMAL:SHEEP": 3.0,
+   "BUY_ANIMAL:COW": 2.0
+  },
+  "land_day": [
+   6.0,
+   9.0,
+   10.0
+  ],
+  "land_frac": [
+   1.0,
+   1.0,
+   1.0
+  ],
+  "crops_d0-9": {
+   "WHEAT": 6.5,
+   "CARROT": 0.2,
+   "TOMATO": 0.6,
+   "STRAWBERRY": 10.2,
+   "MELON": 9.6
+  },
+  "animals_d0-9": {
+   "GOOSE": 1.0,
+   "COW": 4.2,
+   "SHEEP": 3.6
+  },
+  "hands_d0-9": 6.6,
+  "crops_d10-19": {
+   "WHEAT": 25.6,
+   "CARROT": 5.1,
+   "TOMATO": 13.7,
+   "STRAWBERRY": 25.3,
+   "MELON": 0.4
+  },
+  "animals_d10-19": {
+   "GOOSE": 7.6,
+   "COW": 9.0,
+   "SHEEP": 6.4
+  },
+  "hands_d10-19": 11.8,
+  "crops_d20-29": {
+   "WHEAT": 27.1,
+   "CARROT": 14.5,
+   "TOMATO": 11.2,
+   "STRAWBERRY": 12.0,
+   "MELON": 0.0
+  },
+  "animals_d20-29": {
+   "GOOSE": 7.5,
+   "COW": 7.4,
+   "SHEEP": 5.6
+  },
+  "hands_d20-29": 11.5,
+  "sell_volume_share": {
+   "WHEAT": 0.267,
+   "EGG": 0.146,
+   "FERTILIZER": 0.133,
+   "CARROT": 0.116,
+   "STRAWBERRY": 0.091,
+   "MILK": 0.084,
+   "TOMATO": 0.07,
+   "WOOL": 0.067,
+   "MELON": 0.026
+  },
+  "sell_price_vs_base": {
+   "CARROT": 1.2,
+   "EGG": 0.78,
+   "FERTILIZER": 5.05,
+   "MELON": 1.1,
+   "MILK": 0.72,
+   "STRAWBERRY": 0.93,
+   "TOMATO": 1.1,
+   "WHEAT": 1.12,
+   "WOOL": 0.74
+  },
+  "sell_qty_median": {
+   "CARROT": 9.0,
+   "EGG": 8.0,
+   "FERTILIZER": 1.0,
+   "MELON": 6.0,
+   "MILK": 2.0,
+   "STRAWBERRY": 2.0,
+   "TOMATO": 8.0,
+   "WHEAT": 4.0,
+   "WOOL": 2.0
+  },
+  "sell_hour_share": {
+   "0": 0.15,
+   "1": 0.089,
+   "2": 0.085,
+   "9": 0.032,
+   "10": 0.034,
+   "13": 0.031,
+   "17": 0.033,
+   "18": 0.036,
+   "21": 0.036,
+   "22": 0.165,
+   "23": 0.038
+  },
+  "sell_by_5day_block": [
+   0.015,
+   0.04,
+   0.172,
+   0.208,
+   0.226,
+   0.34
+  ]
+ },
+ "Vadim Vasilenko": {
+  "games": 120,
+  "win_rate": 0.7333333333333333,
+  "final_money": 106253.05833333333,
+  "day0_orders_per_game": {
+   "BUY_SEED:WHEAT": 13.8,
+   "BUY_PRODUCT:WHEAT": 9.0,
+   "SELL:WHEAT": 6.0,
+   "BUY_SEED:MELON": 6.0,
+   "HIRE": 4.0,
+   "BUY_ANIMAL:SHEEP": 3.0,
+   "BUY_ANIMAL:COW": 2.0
+  },
+  "land_day": [
+   6.0,
+   9.0,
+   10.0
+  ],
+  "land_frac": [
+   1.0,
+   1.0,
+   0.97
+  ],
+  "crops_d0-9": {
+   "WHEAT": 6.4,
+   "CARROT": 0.1,
+   "TOMATO": 0.3,
+   "STRAWBERRY": 10.5,
+   "MELON": 9.6
+  },
+  "animals_d0-9": {
+   "GOOSE": 1.0,
+   "COW": 4.2,
+   "SHEEP": 3.6
+  },
+  "hands_d0-9": 6.7,
+  "crops_d10-19": {
+   "WHEAT": 26.1,
+   "CARROT": 4.4,
+   "TOMATO": 11.4,
+   "STRAWBERRY": 27.4,
+   "MELON": 0.4
+  },
+  "animals_d10-19": {
+   "GOOSE": 6.6,
+   "COW": 9.3,
+   "SHEEP": 6.4
+  },
+  "hands_d10-19": 11.6,
+  "crops_d20-29": {
+   "WHEAT": 29.5,
+   "CARROT": 13.9,
+   "TOMATO": 9.5,
+   "STRAWBERRY": 13.0,
+   "MELON": 0.0
+  },
+  "animals_d20-29": {
+   "GOOSE": 6.4,
+   "COW": 8.1,
+   "SHEEP": 6.0
+  },
+  "hands_d20-29": 11.5,
+  "sell_volume_share": {
+   "MELON": 0.188,
+   "WHEAT": 0.104,
+   "FERTILIZER": 0.102,
+   "EGG": 0.101,
+   "STRAWBERRY": 0.101,
+   "MILK": 0.101,
+   "CARROT": 0.101,
+   "WOOL": 0.101,
+   "TOMATO": 0.1
+  },
+  "sell_price_vs_base": {
+   "CARROT": 1.05,
+   "EGG": 0.76,
+   "FERTILIZER": 0.76,
+   "MELON": 0.87,
+   "MILK": 0.33,
+   "STRAWBERRY": 0.65,
+   "TOMATO": 1.01,
+   "WHEAT": 0.93,
+   "WOOL": 0.46
+  },
+  "sell_qty_median": {
+   "CARROT": 13.0,
+   "EGG": 8.0,
+   "FERTILIZER": 1.0,
+   "MELON": 1000.0,
+   "MILK": 3.0,
+   "STRAWBERRY": 2.0,
+   "TOMATO": 10.0,
+   "WHEAT": 4.0,
+   "WOOL": 2.0
+  },
+  "sell_hour_share": {
+   "13": 0.098,
+   "14": 0.09,
+   "15": 0.09,
+   "16": 0.098,
+   "17": 0.09,
+   "18": 0.09,
+   "19": 0.09,
+   "20": 0.09,
+   "21": 0.09,
+   "22": 0.092
+  },
+  "sell_by_5day_block": [
+   0.0,
+   0.001,
+   0.092,
+   0.004,
+   0.005,
+   0.898
+  ]
+ },
+ "SpaTaro": {
+  "games": 120,
+  "win_rate": 0.38333333333333336,
+  "final_money": 97911.225,
+  "day0_orders_per_game": {
+   "BUY_PRODUCT:WHEAT": 31.8,
+   "BUY_PRODUCT:TOMATO": 28.3,
+   "BUY_PRODUCT:STRAWBERRY": 24.8,
+   "BUY_PRODUCT:MILK": 22.4,
+   "BUY_PRODUCT:CARROT": 18.9,
+   "SELL:WHEAT": 18.2,
+   "BUY_PRODUCT:MELON": 16.2,
+   "BUY_SEED:MELON": 15.2,
+   "BUY_PRODUCT:WOOL": 12.9,
+   "BUY_PRODUCT:EGG": 12.0
+  },
+  "land_day": [
+   6.1,
+   8.6,
+   null
+  ],
+  "land_frac": [
+   1.0,
+   0.97,
+   0.0
+  ],
+  "crops_d0-9": {
+   "WHEAT": 9.9,
+   "CARROT": 0.6,
+   "TOMATO": 0.0,
+   "STRAWBERRY": 8.3,
+   "MELON": 11.0
+  },
+  "animals_d0-9": {
+   "GOOSE": 0.0,
+   "COW": 4.2,
+   "SHEEP": 2.9
+  },
+  "hands_d0-9": 7.1,
+  "crops_d10-19": {
+   "WHEAT": 22.2,
+   "CARROT": 7.3,
+   "TOMATO": 0.0,
+   "STRAWBERRY": 27.0,
+   "MELON": 0.2
+  },
+  "animals_d10-19": {
+   "GOOSE": 0.0,
+   "COW": 8.7,
+   "SHEEP": 6.9
+  },
+  "hands_d10-19": 10.3,
+  "crops_d20-29": {
+   "WHEAT": 28.6,
+   "CARROT": 9.7,
+   "TOMATO": 0.1,
+   "STRAWBERRY": 13.7,
+   "MELON": 0.0
+  },
+  "animals_d20-29": {
+   "GOOSE": 0.0,
+   "COW": 8.4,
+   "SHEEP": 7.0
+  },
+  "hands_d20-29": 10.2,
+  "sell_volume_share": {
+   "WHEAT": 0.435,
+   "FERTILIZER": 0.125,
+   "STRAWBERRY": 0.113,
+   "MILK": 0.109,
+   "CARROT": 0.089,
+   "WOOL": 0.082,
+   "MELON": 0.046,
+   "TOMATO": 0.0
+  },
+  "sell_price_vs_base": {
+   "CARROT": 1.17,
+   "FERTILIZER": 5.26,
+   "MELON": 1.15,
+   "MILK": 0.73,
+   "STRAWBERRY": 0.99,
+   "TOMATO": 2.5,
+   "WHEAT": 1.17,
+   "WOOL": 0.71
+  },
+  "sell_qty_median": {
+   "CARROT": 6.0,
+   "FERTILIZER": 4.0,
+   "MELON": 8.0,
+   "MILK": 4.0,
+   "STRAWBERRY": 4.0,
+   "TOMATO": 2.0,
+   "WHEAT": 5.0,
+   "WOOL": 3.0
+  },
+  "sell_hour_share": {
+   "0": 0.21,
+   "1": 0.111,
+   "2": 0.064,
+   "3": 0.031,
+   "5": 0.038,
+   "13": 0.036,
+   "17": 0.035,
+   "21": 0.039,
+   "22": 0.044,
+   "23": 0.033
+  },
+  "sell_by_5day_block": [
+   0.031,
+   0.068,
+   0.17,
+   0.208,
+   0.221,
+   0.302
+  ]
+ },
+ "Artem The Farmer": {
+  "games": 120,
+  "win_rate": 0.38333333333333336,
+  "final_money": 106523.35833333334,
+  "day0_orders_per_game": {
+   "BUY_PRODUCT:WHEAT": 11.4,
+   "HIRE": 5.0,
+   "SELL:WHEAT": 5.0,
+   "BUY_SEED:WHEAT": 4.2,
+   "BUY_SEED:MELON": 3.5,
+   "BUY_ANIMAL:COW": 2.7,
+   "BUY_ANIMAL:SHEEP": 2.7
+  },
+  "land_day": [
+   6.0,
+   8.0,
+   null
+  ],
+  "land_frac": [
+   1.0,
+   1.0,
+   0.0
+  ],
+  "crops_d0-9": {
+   "WHEAT": 8.3,
+   "CARROT": 0.0,
+   "TOMATO": 0.1,
+   "STRAWBERRY": 8.2,
+   "MELON": 11.4
+  },
+  "animals_d0-9": {
+   "GOOSE": 0.8,
+   "COW": 4.4,
+   "SHEEP": 3.1
+  },
+  "hands_d0-9": 6.7,
+  "crops_d10-19": {
+   "WHEAT": 22.6,
+   "CARROT": 2.1,
+   "TOMATO": 5.2,
+   "STRAWBERRY": 26.5,
+   "MELON": 1.6
+  },
+  "animals_d10-19": {
+   "GOOSE": 3.3,
+   "COW": 7.5,
+   "SHEEP": 5.3
+  },
+  "hands_d10-19": 11.1,
+  "crops_d20-29": {
+   "WHEAT": 22.5,
+   "CARROT": 12.9,
+   "TOMATO": 7.7,
+   "STRAWBERRY": 10.5,
+   "MELON": 0.0
+  },
+  "animals_d20-29": {
+   "GOOSE": 3.2,
+   "COW": 7.4,
+   "SHEEP": 5.0
+  },
+  "hands_d20-29": 11.3,
+  "sell_volume_share": {
+   "WHEAT": 0.293,
+   "STRAWBERRY": 0.127,
+   "FERTILIZER": 0.122,
+   "MILK": 0.119,
+   "CARROT": 0.093,
+   "WOOL": 0.078,
+   "EGG": 0.072,
+   "MELON": 0.048,
+   "TOMATO": 0.048
+  },
+  "sell_price_vs_base": {
+   "CARROT": 1.3,
+   "EGG": 0.79,
+   "FERTILIZER": 5.96,
+   "MELON": 0.99,
+   "MILK": 0.77,
+   "STRAWBERRY": 1.02,
+   "TOMATO": 1.34,
+   "WHEAT": 1.25,
+   "WOOL": 0.74
+  },
+  "sell_qty_median": {
+   "CARROT": 7.0,
+   "EGG": 6.0,
+   "FERTILIZER": 1.0,
+   "MELON": 6.0,
+   "MILK": 3.0,
+   "STRAWBERRY": 3.0,
+   "TOMATO": 5.0,
+   "WHEAT": 8.0,
+   "WOOL": 3.0
+  },
+  "sell_hour_share": {
+   "0": 0.124,
+   "1": 0.087,
+   "5": 0.033,
+   "9": 0.036,
+   "13": 0.037,
+   "17": 0.048,
+   "18": 0.05,
+   "19": 0.031,
+   "20": 0.035,
+   "21": 0.1,
+   "22": 0.132,
+   "23": 0.053
+  },
+  "sell_by_5day_block": [
+   0.019,
+   0.052,
+   0.17,
+   0.193,
+   0.22,
+   0.348
+  ]
+ },
+ "THIRD FARM CLUB": {
+  "games": 120,
+  "win_rate": 0.5416666666666666,
+  "final_money": 110739.40833333334,
+  "day0_orders_per_game": {
+   "BUY_SEED:WHEAT": 13.0,
+   "BUY_SEED:MELON": 7.0,
+   "HIRE": 5.0,
+   "BUY_PRODUCT:WHEAT": 3.0,
+   "BUY_ANIMAL:COW": 3.0,
+   "BUY_ANIMAL:SHEEP": 2.0
+  },
+  "land_day": [
+   6.0,
+   8.0,
+   null
+  ],
+  "land_frac": [
+   1.0,
+   1.0,
+   0.0
+  ],
+  "crops_d0-9": {
+   "WHEAT": 8.3,
+   "CARROT": 0.1,
+   "TOMATO": 0.0,
+   "STRAWBERRY": 9.8,
+   "MELON": 10.1
+  },
+  "animals_d0-9": {
+   "GOOSE": 2.4,
+   "COW": 4.5,
+   "SHEEP": 2.9
+  },
+  "hands_d0-9": 6.3,
+  "crops_d10-19": {
+   "WHEAT": 15.1,
+   "CARROT": 2.6,
+   "TOMATO": 5.1,
+   "STRAWBERRY": 28.0,
+   "MELON": 4.2
+  },
+  "animals_d10-19": {
+   "GOOSE": 5.7,
+   "COW": 7.1,
+   "SHEEP": 6.5
+  },
+  "hands_d10-19": 9.9,
+  "crops_d20-29": {
+   "WHEAT": 25.3,
+   "CARROT": 9.8,
+   "TOMATO": 5.3,
+   "STRAWBERRY": 9.9,
+   "MELON": 1.6
+  },
+  "animals_d20-29": {
+   "GOOSE": 5.8,
+   "COW": 5.9,
+   "SHEEP": 5.6
+  },
+  "hands_d20-29": 10.4,
+  "sell_volume_share": {
+   "WHEAT": 0.173,
+   "FERTILIZER": 0.146,
+   "EGG": 0.128,
+   "STRAWBERRY": 0.12,
+   "MILK": 0.109,
+   "WOOL": 0.093,
+   "CARROT": 0.09,
+   "MELON": 0.076,
+   "TOMATO": 0.064
+  },
+  "sell_price_vs_base": {
+   "CARROT": 1.19,
+   "EGG": 0.76,
+   "FERTILIZER": 4.25,
+   "MELON": 0.66,
+   "MILK": 0.72,
+   "STRAWBERRY": 0.9,
+   "TOMATO": 1.35,
+   "WHEAT": 1.14,
+   "WOOL": 0.65
+  },
+  "sell_qty_median": {
+   "CARROT": 4.0,
+   "EGG": 4.0,
+   "FERTILIZER": 2.0,
+   "MELON": 6.0,
+   "MILK": 4.0,
+   "STRAWBERRY": 6.0,
+   "TOMATO": 6.0,
+   "WHEAT": 6.0,
+   "WOOL": 4.0
+  },
+  "sell_hour_share": {
+   "0": 0.122,
+   "1": 0.119,
+   "21": 0.05,
+   "22": 0.387,
+   "23": 0.15
+  },
+  "sell_by_5day_block": [
+   0.013,
+   0.048,
+   0.085,
+   0.126,
+   0.144,
+   0.584
+  ]
+ },
+ "local:cha22": {
+  "games": 40,
+  "win_rate": 0.05,
+  "final_money": 101224.95,
+  "day0_orders_per_game": {
+   "BUY_SEED:MELON": 12.0,
+   "BUY_SEED:WHEAT": 8.0,
+   "BUY_PRODUCT:WHEAT": 5.0,
+   "HIRE": 5.0,
+   "BUY_ANIMAL:COW": 2.0,
+   "BUY_ANIMAL:SHEEP": 2.0
+  },
+  "land_day": [
+   6.0,
+   11.0,
+   15.4
+  ],
+  "land_frac": [
+   1.0,
+   1.0,
+   0.25
+  ],
+  "crops_d0-9": {
+   "WHEAT": 6.5,
+   "CARROT": 0.0,
+   "TOMATO": 0.0,
+   "STRAWBERRY": 7.2,
+   "MELON": 12.0
+  },
+  "animals_d0-9": {
+   "GOOSE": 0.2,
+   "COW": 4.5,
+   "SHEEP": 2.7
+  },
+  "hands_d0-9": 5.6,
+  "crops_d10-19": {
+   "WHEAT": 22.5,
+   "CARROT": 0.4,
+   "TOMATO": 0.3,
+   "STRAWBERRY": 31.7,
+   "MELON": 0.0
+  },
+  "animals_d10-19": {
+   "GOOSE": 2.1,
+   "COW": 7.4,
+   "SHEEP": 7.9
+  },
+  "hands_d10-19": 10.5,
+  "crops_d20-29": {
+   "WHEAT": 22.7,
+   "CARROT": 12.9,
+   "TOMATO": 1.5,
+   "STRAWBERRY": 17.2,
+   "MELON": 0.0
+  },
+  "animals_d20-29": {
+   "GOOSE": 2.1,
+   "COW": 7.4,
+   "SHEEP": 8.0
+  },
+  "hands_d20-29": 11.5,
+  "sell_volume_share": {
+   "FERTILIZER": 0.481,
+   "WHEAT": 0.185,
+   "STRAWBERRY": 0.092,
+   "MILK": 0.08,
+   "WOOL": 0.068,
+   "CARROT": 0.043,
+   "MELON": 0.024,
+   "EGG": 0.022,
+   "TOMATO": 0.004
+  },
+  "sell_price_vs_base": {
+   "CARROT": 1.62,
+   "EGG": 0.86,
+   "FERTILIZER": 1.84,
+   "MELON": 1.04,
+   "MILK": 0.78,
+   "STRAWBERRY": 0.76,
+   "TOMATO": 2.72,
+   "WHEAT": 1.38,
+   "WOOL": 0.69
+  },
+  "sell_qty_median": {
+   "CARROT": 5.0,
+   "EGG": 3.0,
+   "FERTILIZER": 2.0,
+   "MELON": 6.0,
+   "MILK": 3.0,
+   "STRAWBERRY": 4.0,
+   "TOMATO": 10.0,
+   "WHEAT": 5.0,
+   "WOOL": 4.0
+  },
+  "sell_hour_share": {
+   "0": 0.092,
+   "1": 0.114,
+   "13": 0.03,
+   "19": 0.031,
+   "21": 0.039,
+   "22": 0.203,
+   "23": 0.198
+  },
+  "sell_by_5day_block": [
+   0.01,
+   0.032,
+   0.096,
+   0.133,
+   0.16,
+   0.568
+  ]
+ },
+ "local:hakfield": {
+  "games": 40,
+  "win_rate": 0.05,
+  "final_money": 99887.925,
+  "day0_orders_per_game": {
+   "BUY_PRODUCT:WHEAT": 18.0,
+   "SELL:WHEAT": 13.0,
+   "BUY_SEED:MELON": 12.0,
+   "BUY_SEED:WHEAT": 7.0,
+   "HIRE": 5.0,
+   "BUY_ANIMAL:COW": 2.0,
+   "BUY_ANIMAL:SHEEP": 2.0
+  },
+  "land_day": [
+   6.0,
+   11.0,
+   15.0
+  ],
+  "land_frac": [
+   1.0,
+   1.0,
+   0.2
+  ],
+  "crops_d0-9": {
+   "WHEAT": 6.3,
+   "CARROT": 0.0,
+   "TOMATO": 0.0,
+   "STRAWBERRY": 7.2,
+   "MELON": 12.0
+  },
+  "animals_d0-9": {
+   "GOOSE": 0.1,
+   "COW": 4.6,
+   "SHEEP": 2.6
+  },
+  "hands_d0-9": 5.5,
+  "crops_d10-19": {
+   "WHEAT": 22.9,
+   "CARROT": 0.0,
+   "TOMATO": 0.3,
+   "STRAWBERRY": 31.7,
+   "MELON": 0.0
+  },
+  "animals_d10-19": {
+   "GOOSE": 2.1,
+   "COW": 7.5,
+   "SHEEP": 7.7
+  },
+  "hands_d10-19": 10.3,
+  "crops_d20-29": {
+   "WHEAT": 25.7,
+   "CARROT": 10.1,
+   "TOMATO": 1.4,
+   "STRAWBERRY": 17.2,
+   "MELON": 0.0
+  },
+  "animals_d20-29": {
+   "GOOSE": 2.1,
+   "COW": 7.5,
+   "SHEEP": 7.8
+  },
+  "hands_d20-29": 11.4,
+  "sell_volume_share": {
+   "WOOL": 0.236,
+   "MILK": 0.149,
+   "WHEAT": 0.146,
+   "CARROT": 0.142,
+   "FERTILIZER": 0.089,
+   "EGG": 0.065,
+   "TOMATO": 0.06,
+   "STRAWBERRY": 0.057,
+   "MELON": 0.056
+  },
+  "sell_price_vs_base": {
+   "CARROT": 1.58,
+   "EGG": 0.93,
+   "FERTILIZER": 0.58,
+   "MELON": 0.6,
+   "MILK": 0.8,
+   "STRAWBERRY": 0.55,
+   "TOMATO": 1.82,
+   "WHEAT": 1.18,
+   "WOOL": 0.64
+  },
+  "sell_qty_median": {
+   "CARROT": 999.0,
+   "EGG": 7.0,
+   "FERTILIZER": 2.0,
+   "MELON": 511.5,
+   "MILK": 6.0,
+   "STRAWBERRY": 6.0,
+   "TOMATO": 999.0,
+   "WHEAT": 8.0,
+   "WOOL": 10.0
+  },
+  "sell_hour_share": {
+   "1": 0.065,
+   "13": 0.034,
+   "15": 0.035,
+   "16": 0.089,
+   "17": 0.099,
+   "18": 0.09,
+   "19": 0.09,
+   "20": 0.087,
+   "21": 0.118,
+   "22": 0.125,
+   "23": 0.062
+  },
+  "sell_by_5day_block": [
+   0.0,
+   0.005,
+   0.031,
+   0.071,
+   0.081,
+   0.812
+  ]
+ }
+}
