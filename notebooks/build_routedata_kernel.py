@@ -10,11 +10,13 @@ import sys
 
 SCRIPT = r'''
 import glob, json, os, shutil, subprocess, sys
-for pkg in ("zstandard", "pyarrow", "kaggle_environments"):
+for pkg in ("zstandard", "pyarrow"):
     try:
         __import__(pkg)
     except ImportError:
-        subprocess.run([sys.executable, "-m", "pip", "install", "-q", pkg.replace("_", "-")], check=False)
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", pkg], check=False)
+# the replay-verified engine version (env/replay_check.py: bit-identical to downloaded ladder replays)
+subprocess.run([sys.executable, "-m", "pip", "install", "-q", "kaggle-environments==1.32.7"], check=False)
 src = [p for p in glob.glob("/kaggle/input/**/agent/opp_events.py", recursive=True)][0]
 root = os.path.dirname(os.path.dirname(src))
 shutil.copytree(root, "/kaggle/working/src", dirs_exist_ok=True)

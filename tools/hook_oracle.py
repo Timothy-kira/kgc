@@ -40,12 +40,14 @@ _orig_commit = K._commit_unit
 TAP = {"env": None, "rec": None}
 
 
-def _tap_commit(op, item, price, farm, private, market, shed_capacity=100):
-    ok = _orig_commit(op, item, price, farm, private, market, shed_capacity)
+def _tap_commit(*args, **kw):
+    ok = _orig_commit(*args, **kw)
+    op, item, price = (list(args) + [None] * 3)[:3]
     rec, env = TAP["rec"], TAP["env"]
     if ok and rec is not None and op in ("SELL", "BUY_PRODUCT"):
+        farm = next((v for v in list(args) + list(kw.values()) if isinstance(v, dict) and "tiles" in v), None)
         pl = 0 if farm is env.state[0].observation.farms[0] else 1
-        rec[env.step_count][pl][item] += (1 if price > 1 else 0) if op == "SELL" else -1
+        rec[env.step_count][pl][item] += (1 if (price or 0) > 1 else 0) if op == "SELL" else -1
     return ok
 
 

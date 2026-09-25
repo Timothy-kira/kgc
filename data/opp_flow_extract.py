@@ -26,12 +26,23 @@ _orig_commit = K._commit_unit
 TAP = {"env": None, "flows": None}
 
 
-def _tap(op, item, price, farm, private, market, shed_capacity=100):
-    ok = _orig_commit(op, item, price, farm, private, market, shed_capacity)
+def _find_farm(args, kw):
+    for v in list(args) + list(kw.values()):
+        if isinstance(v, dict) and "money" in v and "tiles" in v:
+            return v
+    return None
+
+
+def _tap(*args, **kw):
+    """Signature-agnostic tap (Kaggle's kaggle_environments added an argument to _commit_unit)."""
+    ok = _orig_commit(*args, **kw) if "_orig_commit" in globals() else _orig(*args, **kw)
+    op, item, price = (list(args) + [None] * 3)[:3]
+    op, item, price = kw.get("op", op), kw.get("item", item), kw.get("price", price)
     fl = TAP["flows"]
     if ok and fl is not None and op in ("SELL", "BUY_PRODUCT"):
+        farm = _find_farm(args, kw)
         pl = 0 if farm is TAP["env"].state[0].observation.farms[0] else 1
-        fl[pl][item] += (1 if price > 1 else 0) if op == "SELL" else -1
+        fl[pl][item] += (1 if (price or 0) > 1 else 0) if op == "SELL" else -1
     return ok
 
 
