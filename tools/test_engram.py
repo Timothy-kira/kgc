@@ -46,6 +46,11 @@ def main():
         sizes = [p for per in lay.primes[i] for p in per]
         for c in range(lay.n_hash_cols):
             assert (got[:, c] >= h.offsets[i][c]).all() and (got[:, c] < h.offsets[i][c] + sizes[c]).all()
+        # sequences shorter than the n-gram order (look-back falls off the start)
+        short = ids[:2]
+        ref_s = official_hash(short, compute_hash_multipliers((lay.layer_ids[i],), 4, v)[0], lay.primes[i],
+                              h.offsets[i], 4, 0)
+        assert (h(short, i) == ref_s).all(), "short-sequence hash mismatch"
         # batched call == per-sequence call; deterministic
         assert (h(np.stack([ids, ids]), i)[1] == got).all()
     # module: zero value -> identity; token_mask closes the gate

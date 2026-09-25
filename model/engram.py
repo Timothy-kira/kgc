@@ -111,8 +111,11 @@ class NgramHasher:
         toks, blocked = [], np.zeros(ids.shape, bool)
         pos = np.arange(L)
         for shift in range(n):
-            src = np.concatenate([np.full(ids.shape[:-1] + (shift,), self.DEAD, np.int64), ids[..., :L - shift]], -1) \
-                if shift else ids
+            if shift >= L:                                              # look-back beyond a short sequence
+                src = np.full(ids.shape, self.DEAD, np.int64)
+            else:
+                src = np.concatenate([np.full(ids.shape[:-1] + (shift,), self.DEAD, np.int64), ids[..., :L - shift]], -1) \
+                    if shift else ids
             blocked = blocked | (pos < shift) | (src == self.DEAD)
             toks.append(np.where(blocked, self.pad_id, src))
         prod = np.stack(toks, -1) * self.mult[i]                       # [..., L, n]
