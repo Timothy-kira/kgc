@@ -37,6 +37,7 @@ from model.clm_batch import collate
 from model.clm_policy import CLMPolicy
 from model.dsv41 import ModelArgs
 from model.seq_batch import obs_feats
+from model.opp_data import LAYER_D, LAYER_S, OPP_KEYS, OppIndex
 
 
 def crop(tr, crop_steps, rng):
@@ -53,6 +54,9 @@ def crop(tr, crop_steps, rng):
     out = {k: tr[k][s0:s1] for k in ("prod", "glob", "tiles", "units")}
     out["act"] = tr["act"][a0:a1]
     out["act_off"] = off[s0:s1 + 1] - a0
+    for k in OPP_KEYS:
+        if k in tr:
+            out[k] = tr[k][s0:s1]
     for k in ("win", "diff", "score"):
         out[k] = tr[k]
     return out
@@ -62,7 +66,8 @@ class Loader:
     """Background producer: files -> trajectories (shuffle buffer) -> collated pinned batches."""
 
     def __init__(self, files, batch, min_score, crop_steps, device, epochs=10 ** 9, seed=0, n_threads=3, qsize=6,
-                 loser_w=0.5, hist_drop=0.0):
+                 loser_w=0.5, hist_drop=0.0, opp=None):
+        self.opp = opp                                    # OppIndex: attach Engram rows / opponent targets
         self.files, self.batch, self.min_score, self.loser_w = list(files), batch, min_score, loser_w
         self.hist_drop = hist_drop
         self.crop_steps, self.device, self.epochs = crop_steps, device, epochs
@@ -81,6 +86,8 @@ class Loader:
             for f in fs:
                 try:
                     trs = [t for t in load_trajs(f) if t["score"] >= self.min_score]
+                    if self.opp is not None:
+                        trs = [t for t in trs if self.opp.attach(t)]
                 except Exception as e:
                     print("load failed", f, e, flush=True)
                     continue
@@ -137,8 +144,13 @@ def _bwd_infonce(lg, cand):
 def compute_loss(net, b, dtype, coefs):
     feats = obs_feats(b, dtype)
     fwd = (lambda *x: net(*x)) if hasattr(net, "module") else net.forward_train
+    core = net.module if hasattr(net, "module") else net
+    eng = "eng_s" in b
+    core.engram_ids = {LAYER_S: b["eng_s"], LAYER_D: b["eng_d"]} if eng else None
+    core.engram_mask = b["eng_mask"] if eng else None
     lu, lm, value, mtp, aux = fwd(b["ids"], feats, b["otype"], b["dec_pos"], b["dec_slot"], b["dec_desc"],
-                                  b["tgt_pos"], b["tgt_kind"], b["val_pos"], b["mtp_pos"], b["mtp_kind"], b.get("dec_keep"))
+                                  b["tgt_pos"], b["tgt_kind"], b["val_pos"], b["mtp_pos"], b["mtp_kind"], b.get("dec_keep"),
+                                  b.get("opp_pos"))
     k, c, w = b["tgt_kind"], b["tgt_cand"], b["tgt_w"]
     cu, cm, wu, wm = c[k == 0], c[k == 1], w[k == 0], w[k == 1]
     ce_u = F.cross_entropy(lu.float(), cu, reduction="none")
@@ -160,12 +172,21 @@ def compute_loss(net, b, dtype, coefs):
     # CLM averages forward and backward directions
     main = (ce + coefs["bwd"] * bwd) / (1 + coefs["bwd"])
     loss = main + coefs["value"] * (vw + 0.1 * vd) + coefs["mtp"] * mtp_l + coefs["index"] * aux
+    opp_ce = opp_acc = opp_st = torch.zeros((), device=ce.device)
+    if eng and core.last_opp is not None:
+        ol, ost = core.last_opp
+        opp_ce = F.cross_entropy(ol.float().flatten(0, 2), b["opp_tgt"].flatten())       # InfoNCE over 9 candidates
+        opp_st = F.mse_loss(ost.float(), b["opp_stock"])
+        with torch.no_grad():
+            opp_acc = (ol.argmax(-1) == b["opp_tgt"]).float().mean()
+        loss = coefs["policy"] * loss + coefs["opp"] * (opp_ce + 0.1 * opp_st)
     with torch.no_grad():
         acc_u = (lu.argmax(-1) == cu).float().mean() if len(cu) else torch.zeros(())
         acc_m = (lm.argmax(-1) == cm).float().mean() if len(cm) else torch.zeros(())
     core = net.module if hasattr(net, "module") else net
     return loss, dict(ce=float(ce), bwd=float(bwd), acc_unit=float(acc_u), acc_market=float(acc_m), vwin=float(vw),
                       vdiff=float(vd), mtp=float(mtp_l), idx=float(aux), scale=float(core.scale()),
+                      opp_ce=float(opp_ce), opp_acc=float(opp_acc), opp_stock=float(opp_st),
                       ntok=int(c.numel()), seq=int(b["ids"].numel()))
 
 
@@ -173,7 +194,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", required=True, help="glob(s) of seq_*.npz, comma separated")
     ap.add_argument("--out", required=True)
-    ap.add_argument("--stage", choices=["pre", "mid"], default="pre")
+    ap.add_argument("--stage", choices=["pre", "mid", "engram"], default="pre")
+    ap.add_argument("--opp_data", default=None, help="glob of data/opp_flow_extract.py npz (Engram stage)")
+    ap.add_argument("--opp_vocab", default=None, help="compressed event vocab npz (model/opp_data.build_vocab)")
+    ap.add_argument("--policy_w", type=float, default=0.3, help="Engram stage: weight of the original CLM loss")
     ap.add_argument("--init", default=None)
     ap.add_argument("--min_score", type=float, default=None)
     ap.add_argument("--epochs", type=int, default=2)
@@ -201,8 +225,8 @@ def main():
         dist.init_process_group("nccl")
         torch.cuda.set_device(int(os.environ.get("LOCAL_RANK", "0")))
     device = f"cuda:{torch.cuda.current_device()}" if torch.cuda.is_available() else "cpu"
-    ms = a.min_score if a.min_score is not None else (1800 if a.stage == "pre" else 2800)
-    lr = a.lr or (1e-3 if a.stage == "pre" else 2e-4)
+    ms = a.min_score if a.min_score is not None else (2800 if a.stage == "mid" else 1800)
+    lr = a.lr or {"pre": 1e-3, "mid": 2e-4, "engram": 3e-4}[a.stage]
     loser_w = a.loser_w if a.loser_w is not None else (0.5 if a.stage == "pre" else 0.2)
     files = sorted(sum([glob.glob(g) for g in a.data.split(",")], []))
     random.Random(0).shuffle(files)
@@ -210,7 +234,14 @@ def main():
     val, train = files[:nv], files[nv:]
     train = train[rank::world] if world > 1 else train
     os.makedirs(a.out, exist_ok=True)
-    args = ModelArgs(obs_types=OBS_TYPES, dim=a.dim, n_layers=a.n_layers,
+    opp = OppIndex(a.opp_data, a.opp_vocab) if a.opp_data else None
+    eng_kw = {}
+    if opp is not None:
+        lay = opp.layout
+        eng_kw = dict(engram_layer_ids=lay.layer_ids, engram_rows=tuple(lay.rows(i) for i in range(len(lay.layer_ids))),
+                      engram_head_dim=lay.head_dim, engram_n_hash_cols=lay.n_hash_cols)
+        print("opp index", len(opp.loc), "trajectories; vocab", opp.vocab.sizes, flush=True)
+    args = ModelArgs(obs_types=OBS_TYPES, dim=a.dim, n_layers=a.n_layers, **eng_kw,
                      compress_ratios=tuple([0] + [2] * ((a.n_layers - 2) // 2) + [1] * (a.n_layers - 2 - (a.n_layers - 2) // 2) + [0, 0]),
                      kv_source_layers=(1, 1 + (a.n_layers - 2) // 2), index_source_layers=(1, 1 + (a.n_layers - 2) // 2))
     json.dump(args.__dict__, open(os.path.join(a.out, "model_args.json"), "w"), default=list)
@@ -230,10 +261,15 @@ def main():
     amp_dtype = torch.bfloat16 if (use_amp and torch.cuda.get_device_capability()[0] >= 8) else torch.float16
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp and amp_dtype == torch.float16)
     print("amp dtype", amp_dtype, "world", world, flush=True)
-    opt = torch.optim.AdamW(net.parameters(), lr=lr, betas=(0.9, 0.95), weight_decay=0.05)
-    coefs = {"value": 0.2, "mtp": 0.3, "index": 0.1, "bwd": a.bwd}
+    # Engram tables learn from sparse hits: 10x lr, no weight decay (DeepSeek trains them with their own optimizer)
+    tab = [p for n, p in core.named_parameters() if n.startswith("engrams.") and n.endswith("embed.weight")]
+    tab_ids = {id(p) for p in tab}
+    rest = [p for p in net.parameters() if id(p) not in tab_ids]
+    groups = [{"params": rest, "mult": 1.0}] + ([{"params": tab, "mult": 10.0, "weight_decay": 0.0}] if tab else [])
+    opt = torch.optim.AdamW(groups, lr=lr, betas=(0.9, 0.95), weight_decay=0.05)
+    coefs = {"value": 0.2, "mtp": 0.3, "index": 0.1, "bwd": a.bwd, "policy": a.policy_w, "opp": 1.0}
     loader = Loader(train, a.batch, ms, a.crop_steps, device, epochs=a.epochs, loser_w=loser_w,
-                    hist_drop=a.hist_drop)
+                    hist_drop=a.hist_drop, opp=opp)
     print("loader started", flush=True)
     deadline = time.time() + a.max_hours * 3600
     t0, tl = time.time(), time.time()
@@ -264,7 +300,7 @@ def main():
         prog = min(1.0, max(step / est_total, elapsed / (a.max_hours * 3600)))
         cur_lr = lr * (prog / 0.1 if prog < 0.1 else 0.5 * (1 + math.cos(math.pi * (prog - 0.1) / 0.9)) * 0.96 + 0.04)
         for g in opt.param_groups:
-            g["lr"] = cur_lr
+            g["lr"] = cur_lr * g.get("mult", 1.0)
         with torch.autocast(device_type="cuda", dtype=amp_dtype, enabled=use_amp):
             loss, st = compute_loss(net, b, amp_dtype if use_amp else torch.float32, coefs)
         scaler.scale(loss / a.accum).backward()
@@ -302,7 +338,7 @@ def main():
         print("saved", os.path.join(a.out, f"{a.stage}.pt"), flush=True)
         return
     net.eval()
-    vl = Loader(val, a.batch, ms, a.crop_steps, device, epochs=1, seed=123)
+    vl = Loader(val, a.batch, ms, a.crop_steps, device, epochs=1, seed=123, opp=opp)
     vs = []
     with torch.no_grad():
         for j, b in enumerate(vl):

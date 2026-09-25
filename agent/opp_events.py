@@ -167,3 +167,46 @@ def infer_flows(K, obs_before, my_action, inv_after):
                 ours[it] -= 1
     dr = drain(step, obs_before["town"]["unlocked_shops"])
     return {p: (inv_after[p] - inv_before[p]) + dr[p] - ours[p] for p in PRODUCTS}
+
+
+# ----------------------------------------------------------------------------- CLM-style opponent targets
+HORIZONS = (1, 4, 24, 72, 0)                     # steps ahead; 0 = until the end of the game
+H_EDGES = {1: STEP_EDGES, 4: STEP_EDGES, 24: DAY_EDGES, 72: (1, 11, 41, 121), 0: (1, 11, 41, 121)}
+N_BUCKET = 9
+DESC_DIM = len(PRODUCTS) + 3 + 1 + len(HORIZONS)
+
+
+def opp_targets(flow):
+    """flow int [T, 9] (opponent's flow of transition t) -> bucket ids int64 [T, len(HORIZONS), 9]: for the
+    decision at step t (which has seen transitions < t) the summed flow over transitions t .. t+h-1."""
+    import numpy as np
+    flow = np.asarray(flow, np.int64)
+    T = len(flow)
+    cs = np.concatenate([np.zeros((1, flow.shape[1]), np.int64), np.cumsum(flow, 0)])
+    out = np.empty((T, len(HORIZONS), flow.shape[1]), np.int64)
+    idx = np.arange(T)
+    for j, h in enumerate(HORIZONS):
+        end = np.full(T, T) if h == 0 else np.minimum(idx + h, T)
+        q = cs[end] - cs[idx]
+        edges = np.array(H_EDGES[h])
+        b = (np.abs(q)[..., None] >= edges).sum(-1)
+        out[:, j] = 4 + np.sign(q) * b
+    return out
+
+
+def opp_desc():
+    """Candidate descriptors float32 [len(HORIZONS), 9 products, 9 buckets, DESC_DIM] for the CLM opponent head:
+    product one-hot, sign one-hot, log magnitude of the bucket's lower edge, horizon one-hot."""
+    import math
+    import numpy as np
+    d = np.zeros((len(HORIZONS), len(PRODUCTS), N_BUCKET, DESC_DIM), np.float32)
+    for j, h in enumerate(HORIZONS):
+        edges = (0,) + tuple(H_EDGES[h])
+        for p in range(len(PRODUCTS)):
+            for b in range(N_BUCKET):
+                k = b - 4
+                d[j, p, b, p] = 1
+                d[j, p, b, len(PRODUCTS) + (0 if k < 0 else 1 if k == 0 else 2)] = 1
+                d[j, p, b, len(PRODUCTS) + 3] = math.log1p(edges[abs(k)]) / 5.0
+                d[j, p, b, len(PRODUCTS) + 4 + j] = 1
+    return d

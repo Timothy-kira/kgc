@@ -104,6 +104,22 @@ def collate(trajs, device="cpu", max_steps=None, value_every=4, loser_w=0.5, his
         tiles.append(tr["tiles"][:T]); units.append(tr["units"][:T].reshape(-1, tr["units"].shape[-1]))
     t = lambda x: torch.from_numpy(np.ascontiguousarray(x)).to(device, non_blocking=True)
     out = {k: t(np.concatenate(v)) for k, v in cat.items()}
+    if "eng_s" in trajs[0]:
+        # Engram: every token of step t shares the step's hash rows; opponent targets at <ACT> (every 2nd step)
+        C = trajs[0]["eng_s"].shape[1]
+        es, ed = np.zeros((B, S, C), np.int64), np.zeros((B, S, C), np.int64)
+        emask = np.zeros((B, S), bool)
+        opp_pos, opp_tgt, opp_stock = [], [], []
+        for b_, (tr, l) in enumerate(zip(trajs, lays)):
+            per = N_OBS + 1 + l["L"]
+            es[b_, :l["S"]] = np.repeat(tr["eng_s"][:l["T"]], per, 0)
+            ed[b_, :l["S"]] = np.repeat(tr["eng_d"][:l["T"]], per, 0)
+            emask[b_, :l["S"]] = True
+            idx = np.arange(0, l["T"], 2)
+            opp_pos.append(np.stack([np.full(len(idx), b_), l["val_pos"][idx]], 1))
+            opp_tgt.append(tr["opp_tgt"][idx]); opp_stock.append(tr["opp_stock"][idx])
+        out.update(eng_s=t(es), eng_d=t(ed), eng_mask=t(emask), opp_pos=t(np.concatenate(opp_pos)),
+                   opp_tgt=t(np.concatenate(opp_tgt)), opp_stock=t(np.concatenate(opp_stock)))
     out.update(ids=t(ids), otype=t(otype), prod=t(np.concatenate(prod)), glob=t(np.concatenate(glob)),
                tiles=t(np.concatenate(tiles)), units=t(np.concatenate(units)))
     return out

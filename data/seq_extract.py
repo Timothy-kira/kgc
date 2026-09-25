@@ -125,7 +125,9 @@ def load_trajs(path):
         out.append(dict(prod=d["prod"][s:e].copy(), glob=d["glob"][s:e].copy(), tiles=d["tiles"][s:e].copy(),
                         units=d["units"][s:e].copy(), act=d["act"][a_off[i]:a_off[i + 1]].copy(),
                         act_off=ao[s + i: s + i + T + 1].copy(),
-                        win=float(d["win"][i]), diff=float(d["diff"][i]), score=float(d["score"][i])))
+                        win=float(d["win"][i]), diff=float(d["diff"][i]), score=float(d["score"][i]),
+                        episode_id=int(d["episode_id"][i]) if "episode_id" in d else -1,
+                        seat=int(d["seat"][i]) if "seat" in d else -1))
     del d
     return out
 

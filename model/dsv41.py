@@ -86,6 +86,11 @@ class ModelArgs:
     index_topk: int = 64
     # hyper-connections
     hc_mult: int = 2
+    # Engram conditional memory (model/engram.py, DeepSeek-V4.1-Flash): lookups added before these blocks
+    engram_layer_ids: tuple = ()
+    engram_rows: tuple = ()
+    engram_head_dim: int = 32
+    engram_n_hash_cols: int = 12
     hc_sinkhorn_iters: int = 5
     hc_eps: float = 1e-6
     # observation embedding (per type: feature width)
@@ -756,6 +761,17 @@ class Transformer(nn.Module):
             m.norm = RMSNorm(args.dim)
             self.mtp.append(m)
         self.hc_mult = args.hc_mult
+        from model.engram import Engram
+        self.engrams = nn.ModuleDict({str(l): Engram(args.dim, args.hc_mult, r, args.engram_n_hash_cols,
+                                                     args.engram_head_dim, args.norm_eps)
+                                      for l, r in zip(args.engram_layer_ids, args.engram_rows)})
+        self.engram_ids = None        # {layer_id: LongTensor [b, s, n_hash_cols]} set by the caller per forward
+        self.engram_mask = None       # optional BoolTensor [b, s]
+
+    def _engram(self, i, h):
+        if self.engram_ids is not None and str(i) in self.engrams and i in self.engram_ids:
+            h = self.engrams[str(i)](h, self.engram_ids[i], self.engram_mask)
+        return h
 
     def embed_inputs(self, ids, obs_feats, obs_type):
         """ids [b,s]; obs_feats list per type of [n_type, width] rows; obs_type [b,s] (-1 = action token);
@@ -783,7 +799,8 @@ class Transformer(nn.Module):
             a = layer.attn.aux_loss
             return h, pm, (a if a is not None else h.new_zeros((), dtype=torch.float32))
 
-        for layer in self.layers:
+        for i, layer in enumerate(self.layers):
+            h = self._engram(i, h)
             snap = (sh.compress_kv, sh.index_k, sh.topk_idxs, sh.index_scores)
             if checkpoint and self.training:
                 h, pre_mix, a = torch.utils.checkpoint.checkpoint(run, layer, h, pre_mix, snap, use_reentrant=False)
@@ -827,7 +844,8 @@ class Transformer(nn.Module):
         """Feed embedded tokens h_in [b,n,dim] at positions start_pos.. ; returns final hidden [b,n,dim]."""
         h = h_in.unsqueeze(2).repeat(1, 1, self.hc_mult, 1)
         pre_mix = make_identity_pre_mix(h, self.hc_mult)
-        for layer, c in zip(self.layers, caches):
+        for i, (layer, c) in enumerate(zip(self.layers, caches)):
+            h = self._engram(i, h)
             h, pre_mix = layer(h, pre_mix, decode=(start_pos, c))
         return self.norm(self.layers[-1].hc_pre(h, pre_mix))
 
@@ -847,7 +865,8 @@ class Transformer(nn.Module):
         """One token per batch element, each at its own position pos [b] (parallel games)."""
         h = h_in.unsqueeze(2).repeat(1, 1, self.hc_mult, 1)
         pre_mix = make_identity_pre_mix(h, self.hc_mult)
-        for layer, c in zip(self.layers, caches):
+        for i, (layer, c) in enumerate(zip(self.layers, caches)):
+            h = self._engram(i, h)
             h, pre_mix = layer(h, pre_mix, decode=(pos, c))
         return self.norm(self.layers[-1].hc_pre(h, pre_mix))
 

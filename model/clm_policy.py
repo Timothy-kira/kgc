@@ -92,6 +92,15 @@ class CLMPolicy(Transformer):
         self.register_buffer("unit_desc", torch.from_numpy(UNIT_DESC), persistent=False)
         self.register_buffer("market_desc", torch.from_numpy(MARKET_DESC), persistent=False)
         self._cand_cache = None
+        # CLM-style opponent event head (docs/PLAN_v4.1.md): per-horizon query vs encoded candidate events
+        from agent.opp_events import HORIZONS, DESC_DIM, PRODUCTS, opp_desc
+        self.opp_q = nn.ModuleList([make_head(args.dim, head_width, head_depth, proj, "gelu", True, False)
+                                    for _ in HORIZONS])
+        self.opp_cand = make_head(DESC_DIM, head_width, head_depth, proj, "gelu", True, False)
+        self.opp_scale = nn.Parameter(torch.tensor(math.log(1 / 0.07)))
+        self.opp_stock = nn.Sequential(nn.Linear(args.dim, args.dim), nn.GELU(), nn.Linear(args.dim, len(PRODUCTS)))
+        self.register_buffer("opp_desc", torch.from_numpy(opp_desc()), persistent=False)
+        self.last_opp = None
         self.hmoe = None
         if getattr(args, "n_skills", 0):
             from model.hmoe import HeuristicMoE
@@ -141,6 +150,13 @@ class CLMPolicy(Transformer):
         logits = self.scale() * zs @ z.t()
         return self.hmoe.pointer_logits(logits, w, cand, shared_prop), w, cand, self.hmoe.last_idx
 
+    def opp_forward(self, h):
+        """h [n, dim] hidden states at <ACT> -> (logits [n, H, 9 products, 9 buckets], log1p stock [n, 9])."""
+        z = F.normalize(self.opp_cand(self.opp_desc).float(), dim=-1)             # [H, 9, 9, P]
+        s = self.opp_scale.exp().clamp(max=100.0)
+        q = torch.stack([F.normalize(head(h).float(), dim=-1) for head in self.opp_q], 1)   # [n, H, P]
+        return s * torch.einsum("nhp,hjbp->nhjb", q, z), self.opp_stock(h.float())
+
     def decision_embedding(self, slot, desc):
         return self.embed(torch.tensor(SLOT_IDS, device=desc.device)[slot]) + self.action_enc(desc)
 
@@ -155,7 +171,7 @@ class CLMPolicy(Transformer):
         return h
 
     def forward_train(self, ids, obs_feats, obs_type, dec_pos, dec_slot, dec_desc, tgt_pos, tgt_kind, val_pos,
-                      mtp_pos=None, mtp_kind=None, dec_keep=None):
+                      mtp_pos=None, mtp_kind=None, dec_keep=None, opp_pos=None):
         h0 = self.embed_all(ids, obs_feats, obs_type, dec_pos, dec_slot, dec_desc, dec_keep)
         sh = self.shared
         sh.compress_kv = sh.index_k = sh.topk_idxs = sh.index_scores = None
@@ -163,6 +179,7 @@ class CLMPolicy(Transformer):
         zu, zm = self.candidate_matrices()
         lu, lm = self.score(h[tgt_pos[:, 0], tgt_pos[:, 1]], tgt_kind, zu, zm)
         value = self.value_head(h[val_pos[:, 0], val_pos[:, 1]].float())
+        self.last_opp = self.opp_forward(h[opp_pos[:, 0], opp_pos[:, 1]]) if opp_pos is not None else None
         aux = self.last_aux
         mtp = None
         if self.mtp and mtp_pos is not None and mtp_pos.numel():
