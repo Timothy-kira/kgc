@@ -28,7 +28,12 @@ def load_agent(path):
     m = importlib.util.module_from_spec(spec)
     sys.modules[name] = m
     spec.loader.exec_module(m)
-    return m.agent
+    import inspect
+    try:
+        n = len(inspect.signature(m.agent).parameters)
+    except (TypeError, ValueError):
+        n = 2
+    return m.agent if n >= 2 else (lambda obs, cfg=None, f=m.agent: f(obs))
 
 
 def play_one(job):
