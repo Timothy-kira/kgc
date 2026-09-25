@@ -140,7 +140,7 @@ def job_spec(j):
                 break
         if cat != "live":
             pool = POOLS[cat]
-            eid, seed, cfg, acts, k = pool[(j // 7) % len(pool)]
+            eid, seed, cfg, acts, k = pool[(j * 7919) % len(pool)]     # distinct tape per job (j//7 repeated games)
             return cat, f"{cat}:{eid}", seed, 1 - k, {kk: v for kk, v in cfg.items() if v is not None}, Tape(acts, k)
         opp = LIVE[(j // 2) % len(LIVE)]
         return "live", opp, 20000 + j, j % 2, None, None
