@@ -78,7 +78,9 @@ class OppIndex:
     """(episode_id, seat) -> location in the opponent-event npz files, with a small file cache."""
 
     def __init__(self, pattern, vocab_path, cache=4):
-        self.files = sorted(glob.glob(pattern))
+        self.files = sorted(glob.glob(pattern, recursive=True))
+        if os.path.isfile(vocab_path) is False:
+            vocab_path = sorted(glob.glob(vocab_path, recursive=True))[0]
         self.loc = {}
         for fi, f in enumerate(self.files):
             with np.load(f) as z:
