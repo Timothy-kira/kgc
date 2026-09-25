@@ -1,0 +1,1482 @@
+{
+"DSM": [
+{
+"t": 0,
+"market": [
+[
+"BUY_ANIMAL",
+"COW",
+1
+],
+[
+"BUY_PRODUCT",
+"WHEAT",
+5
+]
+],
+"share": 1.0
+},
+{
+"t": 1,
+"market": [
+[
+"SELL",
+"WHEAT",
+1
+],
+[
+"HIRE"
+],
+[
+"HIRE"
+],
+[
+"HIRE"
+],
+[
+"HIRE"
+],
+[
+"BUY_ANIMAL",
+"COW",
+1
+],
+[
+"BUY_ANIMAL",
+"SHEEP",
+3
+]
+],
+"share": 1.0
+},
+{
+"t": 2,
+"market": [
+[
+"SELL",
+"WHEAT",
+1
+]
+],
+"share": 1.0
+},
+{
+"t": 3,
+"market": [
+[
+"SELL",
+"WHEAT",
+1
+],
+[
+"BUY_PRODUCT",
+"WHEAT",
+1
+]
+],
+"share": 1.0
+},
+{
+"t": 4,
+"market": [
+[
+"SELL",
+"WHEAT",
+1
+],
+[
+"BUY_PRODUCT",
+"WHEAT",
+1
+]
+],
+"share": 1.0
+},
+{
+"t": 5,
+"market": [
+[
+"SELL",
+"WHEAT",
+1
+],
+[
+"BUY_PRODUCT",
+"WHEAT",
+1
+]
+],
+"share": 1.0
+},
+{
+"t": 6,
+"market": [
+[
+"BUY_SEED",
+"MELON",
+2
+],
+[
+"BUY_PRODUCT",
+"WHEAT",
+1
+]
+],
+"share": 1.0
+},
+{
+"t": 7,
+"market": [],
+"share": 1.0
+},
+{
+"t": 8,
+"market": [
+[
+"BUY_SEED",
+"MELON",
+2
+]
+],
+"share": 1.0
+},
+{
+"t": 9,
+"market": [],
+"share": 1.0
+},
+{
+"t": 10,
+"market": [],
+"share": 1.0
+},
+{
+"t": 11,
+"market": [
+[
+"BUY_SEED",
+"MELON",
+2
+]
+],
+"share": 1.0
+},
+{
+"t": 12,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+2
+]
+],
+"share": 1.0
+},
+{
+"t": 13,
+"market": [
+[
+"SELL",
+"WHEAT",
+1
+],
+[
+"BUY_SEED",
+"WHEAT",
+5
+]
+],
+"share": 0.67
+},
+{
+"t": 14,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 1.0
+},
+{
+"t": 15,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 1.0
+},
+{
+"t": 16,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 1.0
+},
+{
+"t": 17,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 1.0
+},
+{
+"t": 18,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 1.0
+},
+{
+"t": 19,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 1.0
+},
+{
+"t": 20,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 1.0
+},
+{
+"t": 21,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 1.0
+},
+{
+"t": 22,
+"market": [],
+"share": 1.0
+},
+{
+"t": 23,
+"market": [],
+"share": 1.0
+},
+{
+"t": 24,
+"market": [
+[
+"HIRE"
+],
+[
+"HIRE"
+],
+[
+"HIRE"
+],
+[
+"HIRE"
+],
+[
+"HIRE"
+],
+[
+"HIRE"
+],
+[
+"HIRE"
+],
+[
+"HIRE"
+]
+],
+"share": 1.0
+},
+{
+"t": 25,
+"market": [],
+"share": 0.68
+},
+{
+"t": 26,
+"market": [
+[
+"SELL",
+"FERTILIZER",
+1
+],
+[
+"HIRE"
+],
+[
+"BUY_PRODUCT",
+"WHEAT",
+2
+]
+],
+"share": 0.73
+},
+{
+"t": 27,
+"market": [],
+"share": 0.91
+},
+{
+"t": 28,
+"market": [],
+"share": 0.9
+},
+{
+"t": 29,
+"market": [],
+"share": 0.73
+},
+{
+"t": 30,
+"market": [
+[
+"SELL",
+"FERTILIZER",
+1
+],
+[
+"BUY_PRODUCT",
+"WHEAT",
+2
+]
+],
+"share": 0.74
+},
+{
+"t": 31,
+"market": [
+[
+"BUY_SEED",
+"MELON",
+2
+]
+],
+"share": 0.76
+},
+{
+"t": 32,
+"market": [
+[
+"BUY_SEED",
+"MELON",
+2
+]
+],
+"share": 0.76
+},
+{
+"t": 33,
+"market": [
+[
+"BUY_SEED",
+"MELON",
+2
+]
+],
+"share": 0.76
+},
+{
+"t": 34,
+"market": [
+[
+"SELL",
+"FERTILIZER",
+3
+],
+[
+"BUY_SEED",
+"MELON",
+2
+]
+],
+"share": 0.47
+},
+{
+"t": 35,
+"market": [
+[
+"BUY_SEED",
+"MELON",
+2
+],
+[
+"BUY_PRODUCT",
+"WHEAT",
+2
+]
+],
+"share": 0.62
+},
+{
+"t": 36,
+"market": [
+[
+"BUY_SEED",
+"MELON",
+2
+]
+],
+"share": 0.63
+},
+{
+"t": 37,
+"market": [],
+"share": 0.73
+},
+{
+"t": 38,
+"market": [],
+"share": 0.91
+},
+{
+"t": 39,
+"market": [],
+"share": 0.86
+},
+{
+"t": 40,
+"market": [],
+"share": 0.91
+},
+{
+"t": 41,
+"market": [],
+"share": 0.92
+},
+{
+"t": 42,
+"market": [],
+"share": 0.93
+},
+{
+"t": 43,
+"market": [],
+"share": 0.93
+},
+{
+"t": 44,
+"market": [],
+"share": 0.91
+},
+{
+"t": 45,
+"market": [],
+"share": 0.93
+},
+{
+"t": 46,
+"market": [],
+"share": 0.93
+},
+{
+"t": 47,
+"market": [],
+"share": 0.93
+}
+],
+"MotherGoose": [
+{
+"t": 0,
+"market": [
+[
+"BUY_ANIMAL",
+"COW",
+1
+],
+[
+"BUY_PRODUCT",
+"WHEAT",
+5
+]
+],
+"share": 1.0
+},
+{
+"t": 1,
+"market": [
+[
+"SELL",
+"WHEAT",
+1
+],
+[
+"HIRE"
+],
+[
+"HIRE"
+],
+[
+"HIRE"
+],
+[
+"HIRE"
+],
+[
+"BUY_ANIMAL",
+"COW",
+1
+],
+[
+"BUY_ANIMAL",
+"SHEEP",
+3
+]
+],
+"share": 1.0
+},
+{
+"t": 2,
+"market": [
+[
+"SELL",
+"WHEAT",
+1
+]
+],
+"share": 1.0
+},
+{
+"t": 3,
+"market": [
+[
+"SELL",
+"WHEAT",
+1
+],
+[
+"BUY_PRODUCT",
+"WHEAT",
+1
+]
+],
+"share": 1.0
+},
+{
+"t": 4,
+"market": [
+[
+"SELL",
+"WHEAT",
+1
+],
+[
+"BUY_PRODUCT",
+"WHEAT",
+1
+]
+],
+"share": 0.99
+},
+{
+"t": 5,
+"market": [
+[
+"SELL",
+"WHEAT",
+1
+],
+[
+"BUY_PRODUCT",
+"WHEAT",
+1
+]
+],
+"share": 1.0
+},
+{
+"t": 6,
+"market": [
+[
+"BUY_SEED",
+"MELON",
+2
+],
+[
+"BUY_PRODUCT",
+"WHEAT",
+1
+]
+],
+"share": 1.0
+},
+{
+"t": 7,
+"market": [],
+"share": 1.0
+},
+{
+"t": 8,
+"market": [
+[
+"BUY_SEED",
+"MELON",
+2
+]
+],
+"share": 1.0
+},
+{
+"t": 9,
+"market": [],
+"share": 1.0
+},
+{
+"t": 10,
+"market": [],
+"share": 1.0
+},
+{
+"t": 11,
+"market": [
+[
+"BUY_SEED",
+"MELON",
+2
+]
+],
+"share": 1.0
+},
+{
+"t": 12,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+2
+]
+],
+"share": 1.0
+},
+{
+"t": 13,
+"market": [
+[
+"SELL",
+"WHEAT",
+1
+],
+[
+"BUY_SEED",
+"WHEAT",
+5
+]
+],
+"share": 0.99
+},
+{
+"t": 14,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 1.0
+},
+{
+"t": 15,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 1.0
+},
+{
+"t": 16,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 1.0
+},
+{
+"t": 17,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 1.0
+},
+{
+"t": 18,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 0.99
+},
+{
+"t": 19,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 1.0
+},
+{
+"t": 20,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 1.0
+},
+{
+"t": 21,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 1.0
+},
+{
+"t": 22,
+"market": [],
+"share": 0.98
+},
+{
+"t": 23,
+"market": [],
+"share": 1.0
+},
+{
+"t": 24,
+"market": [
+[
+"HIRE"
+],
+[
+"HIRE"
+],
+[
+"HIRE"
+],
+[
+"HIRE"
+],
+[
+"HIRE"
+],
+[
+"HIRE"
+],
+[
+"HIRE"
+],
+[
+"HIRE"
+]
+],
+"share": 0.99
+},
+{
+"t": 25,
+"market": [],
+"share": 0.74
+},
+{
+"t": 26,
+"market": [
+[
+"SELL",
+"FERTILIZER",
+1
+],
+[
+"HIRE"
+],
+[
+"BUY_PRODUCT",
+"WHEAT",
+2
+]
+],
+"share": 0.7
+},
+{
+"t": 27,
+"market": [],
+"share": 0.96
+},
+{
+"t": 28,
+"market": [],
+"share": 0.96
+},
+{
+"t": 29,
+"market": [],
+"share": 0.69
+},
+{
+"t": 30,
+"market": [
+[
+"SELL",
+"FERTILIZER",
+1
+],
+[
+"BUY_PRODUCT",
+"WHEAT",
+2
+]
+],
+"share": 0.67
+},
+{
+"t": 31,
+"market": [
+[
+"BUY_SEED",
+"MELON",
+2
+]
+],
+"share": 0.72
+},
+{
+"t": 32,
+"market": [
+[
+"BUY_SEED",
+"MELON",
+2
+]
+],
+"share": 0.81
+},
+{
+"t": 33,
+"market": [
+[
+"BUY_SEED",
+"MELON",
+2
+]
+],
+"share": 0.68
+},
+{
+"t": 34,
+"market": [
+[
+"SELL",
+"FERTILIZER",
+3
+],
+[
+"BUY_SEED",
+"MELON",
+2
+]
+],
+"share": 0.39
+},
+{
+"t": 35,
+"market": [
+[
+"BUY_SEED",
+"MELON",
+2
+],
+[
+"BUY_PRODUCT",
+"WHEAT",
+2
+]
+],
+"share": 0.62
+},
+{
+"t": 36,
+"market": [
+[
+"BUY_SEED",
+"MELON",
+2
+]
+],
+"share": 0.67
+},
+{
+"t": 37,
+"market": [],
+"share": 0.8
+},
+{
+"t": 38,
+"market": [],
+"share": 0.91
+},
+{
+"t": 39,
+"market": [],
+"share": 0.83
+},
+{
+"t": 40,
+"market": [],
+"share": 0.85
+},
+{
+"t": 41,
+"market": [],
+"share": 0.94
+},
+{
+"t": 42,
+"market": [],
+"share": 0.95
+},
+{
+"t": 43,
+"market": [],
+"share": 0.94
+},
+{
+"t": 44,
+"market": [],
+"share": 0.92
+},
+{
+"t": 45,
+"market": [],
+"share": 0.94
+},
+{
+"t": 46,
+"market": [],
+"share": 0.95
+},
+{
+"t": 47,
+"market": [],
+"share": 0.96
+}
+],
+"MMPQ": [
+{
+"t": 0,
+"market": [
+[
+"BUY_ANIMAL",
+"COW",
+1
+],
+[
+"BUY_PRODUCT",
+"WHEAT",
+5
+],
+[
+"BUY_ANIMAL",
+"SHEEP",
+1
+],
+[
+"BUY_ANIMAL",
+"SHEEP",
+1
+],
+[
+"BUY_ANIMAL",
+"SHEEP",
+1
+]
+],
+"share": 0.8
+},
+{
+"t": 1,
+"market": [
+[
+"SELL",
+"WHEAT",
+1
+],
+[
+"HIRE"
+],
+[
+"HIRE"
+],
+[
+"HIRE"
+],
+[
+"HIRE"
+],
+[
+"BUY_ANIMAL",
+"COW",
+1
+],
+[
+"HIRE"
+]
+],
+"share": 0.79
+},
+{
+"t": 2,
+"market": [
+[
+"SELL",
+"WHEAT",
+1
+]
+],
+"share": 0.85
+},
+{
+"t": 3,
+"market": [
+[
+"SELL",
+"WHEAT",
+1
+],
+[
+"BUY_PRODUCT",
+"WHEAT",
+1
+]
+],
+"share": 0.86
+},
+{
+"t": 4,
+"market": [
+[
+"BUY_PRODUCT",
+"WHEAT",
+1
+]
+],
+"share": 0.86
+},
+{
+"t": 5,
+"market": [
+[
+"BUY_SEED",
+"MELON",
+2
+],
+[
+"BUY_PRODUCT",
+"WHEAT",
+1
+]
+],
+"share": 0.58
+},
+{
+"t": 6,
+"market": [
+[
+"BUY_SEED",
+"MELON",
+2
+]
+],
+"share": 0.58
+},
+{
+"t": 7,
+"market": [],
+"share": 0.71
+},
+{
+"t": 8,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 0.76
+},
+{
+"t": 9,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 0.67
+},
+{
+"t": 10,
+"market": [
+[
+"BUY_SEED",
+"MELON",
+2
+]
+],
+"share": 0.6
+},
+{
+"t": 11,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 0.69
+},
+{
+"t": 12,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 0.67
+},
+{
+"t": 13,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 0.54
+},
+{
+"t": 14,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 0.45
+},
+{
+"t": 15,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 0.34
+},
+{
+"t": 16,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 0.52
+},
+{
+"t": 17,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 0.69
+},
+{
+"t": 18,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 0.78
+},
+{
+"t": 19,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 0.71
+},
+{
+"t": 20,
+"market": [
+[
+"BUY_SEED",
+"WHEAT",
+1
+]
+],
+"share": 0.58
+},
+{
+"t": 21,
+"market": [],
+"share": 0.6
+},
+{
+"t": 22,
+"market": [],
+"share": 0.92
+},
+{
+"t": 23,
+"market": [],
+"share": 0.91
+},
+{
+"t": 24,
+"market": [
+[
+"HIRE"
+],
+[
+"HIRE"
+],
+[
+"HIRE"
+]
+],
+"share": 0.71
+},
+{
+"t": 25,
+"market": [],
+"share": 0.83
+},
+{
+"t": 26,
+"market": [
+[
+"SELL",
+"FERTILIZER",
+1
+],
+[
+"BUY_PRODUCT",
+"WHEAT",
+3
+]
+],
+"share": 0.29
+},
+{
+"t": 27,
+"market": [],
+"share": 0.91
+},
+{
+"t": 28,
+"market": [],
+"share": 0.91
+},
+{
+"t": 29,
+"market": [],
+"share": 0.77
+},
+{
+"t": 30,
+"market": [
+[
+"SELL",
+"FERTILIZER",
+1
+],
+[
+"BUY_PRODUCT",
+"WHEAT",
+2
+]
+],
+"share": 0.73
+},
+{
+"t": 31,
+"market": [
+[
+"BUY_SEED",
+"MELON",
+1
+]
+],
+"share": 0.45
+},
+{
+"t": 32,
+"market": [
+[
+"SELL",
+"FERTILIZER",
+2
+],
+[
+"BUY_SEED",
+"MELON",
+1
+]
+],
+"share": 0.38
+},
+{
+"t": 33,
+"market": [
+[
+"SELL",
+"FERTILIZER",
+1
+],
+[
+"BUY_SEED",
+"MELON",
+1
+]
+],
+"share": 0.28
+},
+{
+"t": 34,
+"market": [],
+"share": 0.65
+},
+{
+"t": 35,
+"market": [],
+"share": 0.96
+},
+{
+"t": 36,
+"market": [],
+"share": 0.7
+},
+{
+"t": 37,
+"market": [],
+"share": 0.61
+},
+{
+"t": 38,
+"market": [],
+"share": 0.96
+},
+{
+"t": 39,
+"market": [],
+"share": 0.95
+},
+{
+"t": 40,
+"market": [],
+"share": 0.89
+},
+{
+"t": 41,
+"market": [],
+"share": 0.94
+},
+{
+"t": 42,
+"market": [],
+"share": 0.96
+},
+{
+"t": 43,
+"market": [],
+"share": 0.99
+},
+{
+"t": 44,
+"market": [],
+"share": 0.91
+},
+{
+"t": 45,
+"market": [],
+"share": 0.96
+},
+{
+"t": 46,
+"market": [],
+"share": 0.94
+},
+{
+"t": 47,
+"market": [],
+"share": 0.91
+}
+]
+}

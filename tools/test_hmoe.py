@@ -48,15 +48,25 @@ def main():
     avail[:, 5] = False
     w2, i2 = g(x, st, avail)
     assert not (i2 == 5).any()
-    # pointer copy with a favoured expert reproduces that expert's proposal
-    moe = HeuristicMoE(d, E)
-    moe.favour(3, margin=5.0)
     props = torch.randint(0, 50, (n, E))
+    shared = torch.randint(0, 50, (n,))
     enc = lambda c, s: torch.randn(len(c), d) * 0.0
-    y, w, cand = moe(x, st, props, enc)
     logits = (torch.rand(n, 50) * 2 - 1) * 19.0          # CLM logits are scale*cos, |.| <= scale (~19)
-    out = moe.pointer_logits(logits, w, cand)
-    assert torch.equal(out.argmax(-1), props[:, 3]), "safe init must reproduce the favoured skill"
+    # safe start: routed weights ~0 (score offset -6) -> the policy reproduces the SHARED expert (DSV4.1 shared_experts)
+    moe = HeuristicMoE(d, E)
+    y, w, cand = moe(x, st, props, enc, shared)
+    out = moe.pointer_logits(logits, w, cand, shared)
+    assert torch.equal(out.argmax(-1), shared), "safe init must reproduce the shared expert"
+    assert torch.equal(y, x), "untrained adapters must leave h unchanged"
+    # a routed expert the gate scores highly takes over from the shared one
+    moe = HeuristicMoE(d, E, score_offset=0.0)
+    with torch.no_grad():
+        moe.gate.score_offset[3] = 8.0
+    moe.favour(3, margin=5.0)
+    y, w, cand = moe(x, st, props, enc, shared)
+    out = moe.pointer_logits(logits, w, cand, shared)
+    agree = (out.argmax(-1) == props[:, 3]) | (props[:, 3] == shared)
+    assert agree.all(), "a confident routed expert must override the shared expert"
     print("HMOE_TESTS_OK")
 
 

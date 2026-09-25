@@ -1,8 +1,10 @@
 """Heuristic Mixture-of-Experts action layer (H-MoE), modelled on DeepSeek-V4.1-Flash `inference/model.py`
 (Gate L792-827, Expert L830-851, MoE L854-904).
 
-Routed experts are *heuristic skills* (agent/skills.py: one expert per patch layer of the public agents); the
-shared expert is the neural path. For a decision slot with hidden state h:
+Routed experts are independent heuristic algorithms (agent/top_experts.py: strategies extracted from top teams'
+replays; public agents; skill layers). As in DSV4.1 `MoE.forward` (`y += self.shared_experts(x)`), a SHARED
+expert is always on and unweighted: here the strongest complete heuristic (cha22) plus the neural path. For a
+decision slot with hidden state h:
 
   Gate (as DSV4.1):  scores  = sqrtsoftplus(W_g h / gate_temp)
                      indices = topk(scores + bias[slot_type])      # bias picks experts, never scales them;
@@ -13,9 +15,11 @@ shared expert is the neural path. For a decision slot with hidden state h:
   Routed expert k:   E_k = SwiGLU(action_enc(desc(a_k)) + expert_emb[k])   # a_k: skill k's proposed candidate
                      (one SwiGLU shared by all skills + a per-skill embedding: 157 fine-grained experts at the
                       cost of one; same clamps as DSV4.1's Expert)
-  Output (as MoE):   y = h + shared(h) + sum_k w_k E_k                     # into the CLM state head
-  Pointer copy:      logits(a) += lam * sum_k w_k [a == a_k]               # lets the policy reproduce a skill
-                                                                           # exactly (product-of-experts view)
+  Shared expert:     S = SwiGLU(action_enc(desc(a_s)) + shared_emb) + SwiGLU_nn(h)   # a_s: shared heuristic
+  Output (as MoE):   y = h + S + sum_k w_k E_k                             # into the CLM state head
+  Pointer copy:      logits(a) += lam * ([a == a_s] + sum_k w_k [a == a_k])    # reproduce experts exactly
+  Safe start:        the gate score has a learnable per-expert offset (init -6, the one addition to DSV4.1's gate)
+                     so routed weights start ~0 and the policy starts as the shared expert.
 Selection bias is updated outside the optimiser (noaux_tc, as `Transformer.update_gate_bias`).
 """
 import math
@@ -29,18 +33,19 @@ N_SLOT_TYPES = 3            # 0 farmer, 1 hand, 2 market (SLOT_FARMER, SLOT_HAND
 
 class HGate(nn.Module):
     def __init__(self, dim, n_experts, topk=(1, 1, 1), score_func="sqrtsoftplus", gate_temp=1.0,
-                 route_scale=1.5, norm_topk_prob=True):
+                 route_scale=1.5, norm_topk_prob=True, score_offset=0.0):
         super().__init__()
         self.n_experts = n_experts
         self.topk = tuple(topk)                                  # per slot type (cf. get_moe_config per layer)
         self.score_func, self.gate_temp = score_func, gate_temp
         self.route_scale, self.norm_topk_prob = route_scale, norm_topk_prob
         self.weight = nn.Parameter(torch.zeros(n_experts, dim))
+        self.score_offset = nn.Parameter(torch.full((n_experts,), float(score_offset)))
         self.register_buffer("bias", torch.zeros(N_SLOT_TYPES, n_experts))
         self.last_load = None
 
     def scores(self, x):
-        s = F.linear(x.float(), self.weight.float()) / self.gate_temp
+        s = (F.linear(x.float(), self.weight.float()) + self.score_offset.float()) / self.gate_temp
         if self.score_func == "softmax":
             return s.softmax(dim=-1)
         if self.score_func == "sigmoid":
@@ -104,23 +109,27 @@ class SwiGLU(nn.Module):
 
 class HeuristicMoE(nn.Module):
     def __init__(self, dim, n_experts, inter_dim=None, topk=(1, 1, 1), route_scale=1.5, pointer_init=60.0,
-                 swiglu_limit=10.0):
+                 swiglu_limit=10.0, score_offset=-6.0):
         super().__init__()
         self.n_experts = n_experts
-        self.gate = HGate(dim, n_experts, topk=topk, route_scale=route_scale)
+        self.gate = HGate(dim, n_experts, topk=topk, route_scale=route_scale, score_offset=score_offset)
+        self.shared_emb = nn.Parameter(torch.zeros(dim))
+        self.shared_heur = SwiGLU(dim, inter_dim or 2 * dim, swiglu_limit)
         self.expert_emb = nn.Embedding(n_experts, dim)
         nn.init.normal_(self.expert_emb.weight, std=0.02)
         self.routed = SwiGLU(dim, inter_dim or 2 * dim, swiglu_limit)
         self.shared = SwiGLU(dim, inter_dim or 2 * dim, swiglu_limit)
         nn.init.zeros_(self.routed.w2.weight)                     # start as the identity on h
         nn.init.zeros_(self.shared.w2.weight)
+        nn.init.zeros_(self.shared_heur.w2.weight)
         self.log_lam = nn.Parameter(torch.tensor(math.log(pointer_init)))
 
     def lam(self):
         return self.log_lam.exp()
 
-    def forward(self, h, slot_type, props, prop_enc):
-        """h [n,dim]; slot_type [n]; props [n,E] long candidate per skill (-1: skill has no proposal);
+    def forward(self, h, slot_type, props, prop_enc, shared_prop=None):
+        """h [n,dim]; slot_type [n]; props [n,E] long candidate per routed expert (-1: no proposal);
+        shared_prop [n] candidate of the shared heuristic expert (-1: none);
         prop_enc: callable(cand_idx [m], slot_type [m]) -> action encodings [m,dim].
         Returns y [n,dim] (for the CLM state head), weights [n,K], chosen candidates [n,K] (-1 if none)."""
         avail = props >= 0
@@ -134,14 +143,23 @@ class HeuristicMoE(nn.Module):
             e[ok] = prop_enc(cand[ok], slot_type[rows]).to(h.dtype) + self.expert_emb(idx[ok]).to(h.dtype)
         routed = self.routed(e, weights.unsqueeze(-1).to(torch.float32)).sum(1)
         y = h + self.shared(h) + routed.to(h.dtype)
+        self.last_shared = shared_prop
+        if shared_prop is not None and (shared_prop >= 0).any():          # shared expert: always on, unweighted
+            ok_s = shared_prop >= 0
+            es = torch.zeros_like(h)
+            es[ok_s] = (prop_enc(shared_prop[ok_s], slot_type[ok_s]).to(h.dtype) + self.shared_emb.to(h.dtype))
+            y = y + self.shared_heur(es) * ok_s[:, None].to(h.dtype)
         self.last_idx = idx                                        # which skills were routed (for callers)
         return y, weights, torch.where(ok, cand, torch.full_like(cand, -1))
 
-    def pointer_logits(self, logits, weights, cand):
-        """logits [n,N] (one slot family) += lam * sum_k w_k [a == a_k]."""
+    def pointer_logits(self, logits, weights, cand, shared_prop=None):
+        """logits [n,N] (one slot family) += lam * ([a == a_s] + sum_k w_k [a == a_k])."""
         bonus = torch.zeros_like(logits)
         ok = cand >= 0
         bonus.scatter_add_(1, cand.clamp(min=0), (weights * ok).to(logits.dtype))
+        if shared_prop is not None:
+            ok_s = shared_prop >= 0
+            bonus[ok_s, shared_prop[ok_s]] += 1.0
         return logits + self.lam().to(logits.dtype) * bonus
 
     @torch.no_grad()

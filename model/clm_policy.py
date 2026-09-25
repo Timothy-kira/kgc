@@ -133,13 +133,13 @@ class CLMPolicy(Transformer):
             out[mk] = self.action_enc(self.market_desc[cand[mk]]).float()
         return out
 
-    def hmoe_logits(self, h, slot_type, props, z):
+    def hmoe_logits(self, h, slot_type, props, z, shared_prop=None):
         """h [n,dim] slot hidden states of ONE candidate family (z = zu or zm); props [n,E] skill proposals
         (-1 = none). -> logits [n,N] = CLM score of the H-MoE output + pointer copy, gate weights, candidates."""
-        y, w, cand = self.hmoe(h, slot_type, props, self.prop_encode)
+        y, w, cand = self.hmoe(h, slot_type, props, self.prop_encode, shared_prop)
         zs = F.normalize(self.state_head(y).float(), dim=-1)
         logits = self.scale() * zs @ z.t()
-        return self.hmoe.pointer_logits(logits, w, cand), w, cand, self.hmoe.last_idx
+        return self.hmoe.pointer_logits(logits, w, cand, shared_prop), w, cand, self.hmoe.last_idx
 
     def decision_embedding(self, slot, desc):
         return self.embed(torch.tensor(SLOT_IDS, device=desc.device)[slot]) + self.action_enc(desc)
