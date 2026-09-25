@@ -1,3 +1,5 @@
+> **更新（09-25）：对手模型由 TTT 换成 Engram（DeepSeek-V4.1-Flash 条件记忆），挂在预训练 CSA2 上，详见 `docs/PLAN_v4.1.md`。本文中 TTT 相关部分以 v4.1 为准。**
+
 # Kaggriculture v4：cha22 程序骨架 × 可学习插入点 × TTT 对手模型 × 先离线 RL × 快慢分离
 
 ## 0. 一句话
