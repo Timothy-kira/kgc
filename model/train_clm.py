@@ -138,13 +138,19 @@ def compute_loss(net, b, dtype, coefs):
     ce_u = F.cross_entropy(lu.float(), cu, reduction="none")
     ce_m = F.cross_entropy(lm.float(), cm, reduction="none")
     ce = (torch.cat([ce_u * wu, ce_m * wm]).sum()) / w.sum()
-    bwd = 0.5 * (_bwd_infonce(lu, cu) + _bwd_infonce(lm, cm)) if coefs["bwd"] > 0 else torch.zeros((), device=ce.device)
+    bwd = torch.zeros((), device=ce.device)
+    if coefs["bwd"] > 0:
+        parts = [_bwd_infonce(l, t) for l, t in ((lu, cu), (lm, cm)) if len(t)]
+        bwd = sum(parts) / max(len(parts), 1)
     vw = F.binary_cross_entropy_with_logits(value[:, 0].float(), b["val_tgt"][:, 0])
     vd = F.mse_loss(value[:, 1].float(), b["val_tgt"][:, 1])
     mtp_l = torch.zeros((), device=ce.device)
     if mtp is not None:
         mk, mc = b["mtp_kind"], b["mtp_cand"]
-        mtp_l = 0.5 * (F.cross_entropy(mtp[0].float(), mc[mk == 0]) + F.cross_entropy(mtp[1].float(), mc[mk == 1]))
+        # mean over all MTP targets: a batch without market targets would make a per-kind mean NaN (empty) and
+        # the GradScaler would silently skip the whole step
+        mtp_l = torch.cat([F.cross_entropy(mtp[0].float(), mc[mk == 0], reduction="none"),
+                           F.cross_entropy(mtp[1].float(), mc[mk == 1], reduction="none")]).mean()
     # CLM averages forward and backward directions
     main = (ce + coefs["bwd"] * bwd) / (1 + coefs["bwd"])
     loss = main + coefs["value"] * (vw + 0.1 * vd) + coefs["mtp"] * mtp_l + coefs["index"] * aux
@@ -224,7 +230,21 @@ def main():
     warm = 200
     est_total = max(1000, int(a.epochs * len(train) * 400 / a.batch))   # rough: ~400 trajs per file
     net.train()
-    for i, b in enumerate(loader):
+    it = iter(loader)
+    i = -1
+    while True:
+        # every rank must agree to take another step: ranks own different files (uneven batch counts) and the
+        # deadline is checked on local clocks; a one-sided stop leaves the other rank blocked in a DDP collective
+        b = next(it, None)
+        stop = b is None or time.time() > deadline
+        if world > 1:
+            import torch.distributed as dist
+            flag = torch.tensor([1.0 if stop else 0.0], device=device)
+            dist.all_reduce(flag, op=dist.ReduceOp.MAX)
+            stop = bool(flag.item() > 0)
+        if stop:
+            break
+        i += 1
         if i == 0:
             print("first batch", {k: tuple(v.shape) for k, v in b.items()}, flush=True)
         prog = min(1.0, step / est_total)
@@ -254,8 +274,6 @@ def main():
             tl, seq_tokens = time.time(), 0
         if step and step % a.save_every == 0 and (i + 1) % a.accum == 0 and rank == 0:
             torch.save(core.state_dict(), os.path.join(a.out, f"{a.stage}.pt"))
-        if time.time() > deadline:
-            break
     loader.stop = True
     if rank == 0:
         torch.save(core.state_dict(), os.path.join(a.out, f"{a.stage}.pt"))
