@@ -74,7 +74,7 @@ def layout(tr, max_steps=None):
                 mtp_cand=dcand[mtp_idx])
 
 
-def collate(trajs, device="cpu", max_steps=None, value_every=4):
+def collate(trajs, device="cpu", max_steps=None, value_every=4, loser_w=0.5):
     lays = [layout(t, max_steps) for t in trajs]
     B, S = len(trajs), max(l["S"] for l in lays)
     ids = np.full((B, S), 8, np.int64)
@@ -85,7 +85,7 @@ def collate(trajs, device="cpu", max_steps=None, value_every=4):
     for b, (tr, l) in enumerate(zip(trajs, lays)):
         ids[b, :l["S"]] = l["ids"]
         otype[b, :l["S"]] = l["otype"]
-        w = (1.0 if tr["win"] > 0.5 else 0.5) * min(1.5, max(0.3, (tr["score"] - 1500) / 1500))
+        w = (1.0 if tr["win"] > 0.5 else loser_w) * min(1.5, max(0.3, (tr["score"] - 1500) / 1500))
         bb = lambda x: np.stack([np.full(len(x), b), x], 1)
         cat["dec_pos"].append(bb(l["dec_pos"])); cat["dec_slot"].append(l["dec_slot"]); cat["dec_desc"].append(l["dec_desc"])
         cat["tgt_pos"].append(bb(l["tgt_pos"])); cat["tgt_kind"].append(l["tgt_kind"]); cat["tgt_cand"].append(l["tgt_cand"])

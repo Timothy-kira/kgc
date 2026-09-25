@@ -58,8 +58,9 @@ def crop(tr, crop_steps, rng):
 class Loader:
     """Background producer: files -> trajectories (shuffle buffer) -> collated pinned batches."""
 
-    def __init__(self, files, batch, min_score, crop_steps, device, epochs=10 ** 9, seed=0, n_threads=3, qsize=6):
-        self.files, self.batch, self.min_score = list(files), batch, min_score
+    def __init__(self, files, batch, min_score, crop_steps, device, epochs=10 ** 9, seed=0, n_threads=3, qsize=6,
+                 loser_w=0.5):
+        self.files, self.batch, self.min_score, self.loser_w = list(files), batch, min_score, loser_w
         self.crop_steps, self.device, self.epochs = crop_steps, device, epochs
         self.q = queue.Queue(maxsize=qsize)
         self.traj_q = queue.Queue(maxsize=64)
@@ -95,7 +96,7 @@ class Loader:
                 return
             buf.append(crop(t, self.crop_steps, rng))
             if len(buf) >= self.batch:
-                b = collate(buf[:self.batch], device="cpu")
+                b = collate(buf[:self.batch], device="cpu", loser_w=self.loser_w)
                 if self.device.startswith("cuda"):
                     b = {k: v.pin_memory() for k, v in b.items()}
                 self.q.put(b)
@@ -181,6 +182,7 @@ def main():
     ap.add_argument("--save_every", type=int, default=500)
     ap.add_argument("--dim", type=int, default=128)
     ap.add_argument("--n_layers", type=int, default=6)
+    ap.add_argument("--loser_w", type=float, default=None, help="imitation weight of the losing side (win=1)")
     ap.add_argument("--bwd", type=float, default=1.0, help="weight of CLM backward in-batch InfoNCE")
     a = ap.parse_args()
     torch.backends.cuda.matmul.allow_tf32 = True
@@ -194,6 +196,7 @@ def main():
     device = f"cuda:{torch.cuda.current_device()}" if torch.cuda.is_available() else "cpu"
     ms = a.min_score if a.min_score is not None else (1800 if a.stage == "pre" else 2800)
     lr = a.lr or (1e-3 if a.stage == "pre" else 2e-4)
+    loser_w = a.loser_w if a.loser_w is not None else (0.5 if a.stage == "pre" else 0.2)
     files = sorted(sum([glob.glob(g) for g in a.data.split(",")], []))
     random.Random(0).shuffle(files)
     nv = a.val_files if len(files) > a.val_files else 0
@@ -222,7 +225,7 @@ def main():
     print("amp dtype", amp_dtype, "world", world, flush=True)
     opt = torch.optim.AdamW(net.parameters(), lr=lr, betas=(0.9, 0.95), weight_decay=0.05)
     coefs = {"value": 0.2, "mtp": 0.3, "index": 0.1, "bwd": a.bwd}
-    loader = Loader(train, a.batch, ms, a.crop_steps, device, epochs=a.epochs)
+    loader = Loader(train, a.batch, ms, a.crop_steps, device, epochs=a.epochs, loser_w=loser_w)
     print("loader started", flush=True)
     deadline = time.time() + a.max_hours * 3600
     t0, tl = time.time(), time.time()

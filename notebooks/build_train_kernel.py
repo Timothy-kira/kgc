@@ -1,6 +1,7 @@
 """Kaggle GPU kernel: pre-train / mid-train the decoder-only policy on extracted replay sequences.
 
-python notebooks/build_train_kernel.py <kernel_dir> <owner> <data_dataset> <stage> [hours] [init_kernel]
+python notebooks/build_train_kernel.py <kernel_dir> <owner> <data_datasets,...> <stage> [hours] [init] ...
+data_datasets / init_kernel may be comma-separated lists (e.g. checkpoint dataset + seq-extraction kernels).
 Output: /kaggle/working/ckpt/{stage}.pt, model_args.json, train.log
 """
 import sys
@@ -13,7 +14,7 @@ os.environ["PYTHONUNBUFFERED"] = "1"          # live logs: `kaggle kernels logs 
 files = glob.glob("/kaggle/input/**/seq_*.npz", recursive=True)
 print("seq files", len(files), flush=True)
 subprocess.run(["nvidia-smi"], check=False)
-init = glob.glob("/kaggle/input/**/ckpt/__INIT__.pt", recursive=True)
+init = glob.glob("/kaggle/input/**/__INIT__.pt", recursive=True)
 import torch
 ngpu = max(1, torch.cuda.device_count())
 launcher = ([sys.executable, "-m", "torch.distributed.run", "--standalone", f"--nproc_per_node={ngpu}"]
@@ -70,7 +71,8 @@ def build(kdir, owner, data_ds, stage, hours="10.5", init="pre", batch="4", crop
     body = body.replace('",".join(sorted(set(os.path.dirname(f) for f in files))\n       and [d + "/seq_*.npz" for d in sorted(set(os.path.dirname(f) for f in files))])',
                         '",".join(d + "/seq_*.npz" for d in sorted(set(os.path.dirname(f) for f in files)))')
     return build_kernel(kdir, slug or f"{owner}/kgc-train-{stage}", f"kgc train {stage}", body, gpu=True,
-                        dataset_sources=[data_ds], kernel_sources=[init_kernel] if init_kernel else [])
+                        dataset_sources=[d for d in data_ds.split(",") if d],
+                        kernel_sources=[k for k in (init_kernel or "").split(",") if k])
 
 
 if __name__ == "__main__":
