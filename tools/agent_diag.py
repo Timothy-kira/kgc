@@ -1,6 +1,6 @@
 """Where does an agent lose value? Event accounting over a full game (by diffing consecutive states).
 
-python -m tools.planner_diag [agent=planner] [opponent=league/cha22.py] [seeds=9301,9302]
+python -m tools.agent_diag [agent=league/cha22.py] [opponent=league/cha22.py] [seeds=9301,9302]
 Counts per game: plantings by crop, harvested units by product, plants lost to weeds (missed watering),
 one-time crops that decayed (missed harvest window), animals escaped (unfed), items discarded by a full shed
 (end-of-day overflow), revenue by product, spending (seeds / animals / hires / land / wheat), idle unit-steps,
@@ -11,7 +11,6 @@ import json
 import sys
 
 from agent.loader import load_agent
-from agent.planner import TopPlanner
 from env.fast_env import FarmEnv
 
 TPD = 24
@@ -80,14 +79,14 @@ def run(agent, opp, seed):
 
 
 def main():
-    who = sys.argv[1] if len(sys.argv) > 1 else "planner"
+    who = sys.argv[1] if len(sys.argv) > 1 else "league/cha22.py"
     opp_path = sys.argv[2] if len(sys.argv) > 2 else "league/cha22.py"
     seeds = [int(s) for s in (sys.argv[3] if len(sys.argv) > 3 else "9301,9302").split(",")]
-    for name in (who, "cha22"):
+    for name in dict.fromkeys((who, "league/cha22.py")):
         tot = collections.Counter()
         curves = []
         for s in seeds:
-            ag = TopPlanner() if name == "planner" else load_agent(f"league/{name}.py" if name == "cha22" else name)
+            ag = load_agent(name)
             ev, curve = run(ag, load_agent(opp_path), s)
             tot.update(ev)
             curves.append(curve)

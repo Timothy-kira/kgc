@@ -1,8 +1,12 @@
 """Expert pool of the H-MoE policy (DeepSeek-V4.1 MoE layout: one shared expert + routed experts).
 
-  shared   cha22 (strongest complete public agent), always on
-  routed   independent complete agents from other sources (league/pub/*, agent/planner.py), top-team
-           strategy experts (agent/top_experts.py), and prefixes of cha22's patch-layer stack (skip later layers)
+  shared   cha22 (strongest complete public agent), always on: the production executor
+  routed   prefixes of cha22's patch-layer stack (skip later layers) and shed-guarded market experts
+           (agent/top_experts.py); complete agents from other sources can be added via `pub`
+
+Removed (docs/PLAN_v4.md): the independent planner (duplicated cha22's production role at ~38% of its income)
+and the forced macro production experts (opening / land / crop mix / sell schedule: -10k..-135k money when
+forced over cha22, because they break the coupling between cha22's tapes and its repair chassis).
 
 `propose(obs, cfg)` runs every expert in shadow mode (their internal state follows the real game) and returns
 the shared action plus one partial action per routed expert. `slot_table(...)` turns them into per-slot
@@ -12,10 +16,8 @@ import time
 
 from agent.action_space import SLOT_MARKET, STOP, UNIT_NONE, order_to_cand, unit_to_cand
 from agent.loader import load_agent
-from agent.planner import TopPlanner
 from agent.skills import LayeredExpert
-from agent.top_experts import (CropMixExpert, DemandAwareSellExpert, LandExpert, OpeningExpert,
-                               SellScheduleExpert)
+from agent.top_experts import DemandAwareSellExpert
 
 # public agents that cannot beat cha22 are dropped as experts (round robin: cha22 70-2; prvsiyan 2/8 vs cha22,
 # every other public agent 0/8), so by default no other public agent is routed
@@ -24,23 +26,16 @@ CHA22_LAYERS = ["_IG_PARENT", "_MG_PARENT", "_E402_PARENT", "_E410_PARENT"]   # 
 
 
 def top_experts():
-    return [OpeningExpert("DSM"), OpeningExpert("MMPQ"),
-            LandExpert("land_DSM", days=(6, 9, 10)), LandExpert("land_MMPQ", days=(6, 8, 13)),
-            CropMixExpert("crops_light", windows=(("TOMATO", 10, 20, 6), ("CARROT", 14, 27, 8))),
-            CropMixExpert("crops_DSM"),
-            SellScheduleExpert("sell_late", hours=(22, 23, 0), start_day=24, frac=0.7),
-            DemandAwareSellExpert("dsell_fert_shed40", ratio=0.0, fert_ratio=0.45, mode="clamp", max_shed=40),
+    return [DemandAwareSellExpert("dsell_fert_shed40", ratio=0.0, fert_ratio=0.45, mode="clamp", max_shed=40),
             DemandAwareSellExpert("dsell_clamp90_shed40", ratio=0.9, mode="clamp", max_shed=40),
             DemandAwareSellExpert("dsell_clamp80_shed60", ratio=0.8, mode="clamp", max_shed=60)]
 
 
 class ExpertPool:
-    def __init__(self, root="league", pub=PUB, layers=CHA22_LAYERS, planner=True, tops=True):
+    def __init__(self, root="league", pub=PUB, layers=CHA22_LAYERS, tops=True):
         self.shared = LayeredExpert(f"{root}/cha22.py", name="cha22", record_layers=bool(layers))
         self.layer_names = [l for l in layers if l in self.shared.layers]
         self.whole = [(n, load_agent(f"{root}/pub/{n}/main.py")) for n in pub]
-        if planner:
-            self.whole.append(("planner", TopPlanner()))
         self.tops = top_experts() if tops else []
         self.names = ([f"cha22:{l}" for l in self.layer_names] + [n for n, _ in self.whole] +
                       [e.name for e in self.tops])
