@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "candidate": "B",
+  "name": "competition_aware_sheep_admission",
+  "upstream_sha256": "7eb5ab6c48581c82906ab6fa6b2cc5c9607513249ef59b2c45fcd6176e8653dd",
+  "scenario_model": {
+    "project_sheep": 6,
+    "placement_delay_days": 1,
+    "project_sale_hour": 20,
+    "delivery_fraction": 0.75,
+    "minimum_scenario_surplus": 0,
+    "scenarios": [
+      {
+        "name": "visible_herds_frozen_shops",
+        "rival_adoption_sheep": 0,
+        "rival_adoption_delay_days": 3,
+        "feed_cost_multiplier": 1.0
+      },
+      {
+        "name": "six_sheep_adoption_expensive_feed",
+        "rival_adoption_sheep": 6,
+        "rival_adoption_delay_days": 3,
+        "feed_cost_multiplier": 1.25
+      }
+    ]
+  },
+  "strength_status": "UNVERIFIED",
+  "submission_allowed": false
+}

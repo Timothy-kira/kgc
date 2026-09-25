@@ -97,6 +97,6 @@ def fork_branches(choices, run_branch, max_parallel=None):
     return results
 
 
-def warm_pool(n, initializer=None, initargs=()):
+def warm_pool(n, initializer=None, initargs=(), maxtasksperchild=None):
     """Pool of forked workers that inherit everything already imported/compiled in the parent."""
-    return mp.get_context("fork").Pool(n, initializer=initializer, initargs=initargs)
+    return mp.get_context("fork").Pool(n, initializer=initializer, initargs=initargs, maxtasksperchild=maxtasksperchild)

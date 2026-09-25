@@ -7,16 +7,32 @@ plays an older layer of such agents.
 """
 import importlib.util
 import inspect
+import os
 import sys
 import uuid
 
 
 def load_module(path):
+    """Exec an agent file as a fresh module. Like kaggle_environments, the file's directory is on sys.path
+    while it executes (multi-file submissions import sibling modules / compiled extensions); the working
+    directory is switched there too, for agents that open data files by relative path."""
     name = "kagent_" + uuid.uuid4().hex
+    path = os.path.abspath(path)
+    d = os.path.dirname(path)
     spec = importlib.util.spec_from_file_location(name, path)
     m = importlib.util.module_from_spec(spec)
     sys.modules[name] = m
-    spec.loader.exec_module(m)
+    cwd = os.getcwd()
+    sys.path.insert(0, d)
+    try:
+        os.chdir(d)
+        spec.loader.exec_module(m)
+    finally:
+        os.chdir(cwd)
+        if sys.path and sys.path[0] == d:
+            sys.path.pop(0)
+        if d not in sys.path:                  # agents may import siblings lazily at call time
+            sys.path.append(d)
     return m
 
 

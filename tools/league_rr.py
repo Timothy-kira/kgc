@@ -35,14 +35,14 @@ def main():
     t0 = time.time()
     stat = {p: [0, 0, 0, 0.0] for p in paths}
     pair = {}
-    with warm_pool(procs) as pool:
+    with warm_pool(procs, maxtasksperchild=1) as pool:   # fresh fork per game (multi-file agents)
         for a, b, seed, ma, mb in pool.imap_unordered(play, jobs):
             for x, y, mx, my in ((a, b, ma, mb), (b, a, mb, ma)):
                 s = stat[x]
                 s[0 if mx > my else 1 if mx == my else 2] += 1
                 s[3] += mx - my
                 pair.setdefault((x, y), []).append(mx - my)
-    name = lambda p: p.rsplit("/", 1)[-1].replace(".py", "")
+    name = lambda p: (p.rsplit("/", 2)[-2] if p.endswith("/main.py") else p.rsplit("/", 1)[-1].replace(".py", ""))[:40]
     for p in sorted(paths, key=lambda p: -stat[p][3]):
         w, d, l, tot = stat[p]
         print(json.dumps({"agent": name(p), "W": w, "D": d, "L": l, "mean_diff": round(tot / max(w + d + l, 1))}))

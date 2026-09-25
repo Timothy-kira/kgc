@@ -1,0 +1,19 @@
+Fieldcraft R1 - public release, 2026-09-21
+Copyright 2026 hakdevelopment and respective upstream contributors.
+Released under the Apache License, Version 2.0.
+
+This is an adapted agent, not a claim of wholly original route data.
+The release combines public recorded play, town-dependent routes, and
+hakdevelopment's control and market integration. Distribution changes:
+comments/research notes removed, local names shortened, source compressed,
+and a reproducible notebook and match diagnostics added.
+
+Town-dependent route lineage: Ahmed Berat Ozer's Kaggriculture V43 and
+yhay81's shop-router series. Retained upstream credits: thomastschinkel,
+yhay81, destbreso, aurax7, tetsutani, prvsiyan, Dmitrii Gluzdov, and
+Rayk Kretzschmar. Public recorded play supplied the base route.
+
+https://www.kaggle.com/ahmedberatozer
+https://www.kaggle.com/code/yhay81/shop-router-0909
+https://www.kaggle.com/code/yhay81/shop-router-0911-simple
+https://www.kaggle.com/competitions/kaggriculture

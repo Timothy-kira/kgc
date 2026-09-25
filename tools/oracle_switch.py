@@ -8,6 +8,7 @@ the base expert afterwards and reports the final money difference. The driver th
 the day and advances. No prefix replay, no process spawn or re-import per candidate.
 """
 import json
+import os
 import sys
 import time
 
@@ -45,7 +46,8 @@ def main():
     procs = int(sys.argv[4]) if len(sys.argv) > 4 else 4
     base = names.index(sys.argv[5] if len(sys.argv) > 5 else "metav4")
     t0 = time.time()
-    g = Game(opp, seed, [f"league/{n}.py" for n in names])
+    path = lambda n: n if n.endswith(".py") else (f"league/{n}.py" if os.path.exists(f"league/{n}.py") else f"league/pub/{n}/main.py")
+    g = Game(opp, seed, [path(n) for n in names])
 
     def static(k):
         g.play_until(lambda d: k)

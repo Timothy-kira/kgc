@@ -1,0 +1,11 @@
+Frozen upstream: Ahmed Berat Ozer, Kaggriculture V36 Guarded Four-Turn Sales.
+https://www.kaggle.com/code/ahmedberatozer/kaggriculture-v36-guarded-four-turn-sales
+Observed notebook metadata version 1. Source sha256: 7eb5ab6c48581c82906ab6fa6b2cc5c9607513249ef59b2c45fcd6176e8653dd
+Apache-2.0. Complete original license and inherited notices remain in upstream.py.
+Upstream attribution: thomastschinkel, yhay81, destbreso, aurax7, tetsutani,
+prvsiyan, Dmitrii Gluzdov and other named contributors in upstream.py.
+Kaggle engine arithmetic: Kaggle and kaggle-environments contributors, Apache-2.0.
+Modifications: wrapper normalizes empty slots without shifting market order positions.
+B adds an independently implemented, explicit pre-investment scenario admission gate.
+No claim of author endorsement, recovered hidden inventories or validated gold strength.
+Original episode-level route provenance is unavailable; the upstream limitation is retained.

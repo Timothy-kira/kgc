@@ -60,12 +60,14 @@ def main():
     seeds = int(sys.argv[3]) if len(sys.argv) > 3 else 2
     procs = int(sys.argv[4]) if len(sys.argv) > 4 else 4
     out = sys.argv[5] if len(sys.argv) > 5 else os.path.join(d, "screen.json")
-    cands = sorted(glob.glob(os.path.join(d, "*.py")))
+    # a candidate is either <d>/<name>.py or a multi-file submission <d>/<name>/main.py
+    cands = sorted(glob.glob(os.path.join(d, "*.py")) + glob.glob(os.path.join(d, "*", "main.py")))
     ref_names = names(ref)
     jobs = [(c, ref, 9100 + s, seat) for c in cands for s in range(seeds) for seat in (0, 1)]
     res = {}
     t0 = time.time()
-    with warm_pool(procs) as pool:
+    # one fresh fork per game: multi-file agents import sibling modules with clashing names (agent.so, ...)
+    with warm_pool(procs, maxtasksperchild=1) as pool:
         for c, seed, seat, diff, money, ms, err in pool.imap_unordered(play, jobs):
             r = res.setdefault(c, {"diffs": [], "money": [], "ms": [], "errors": []})
             if err:
@@ -77,7 +79,7 @@ def main():
         nm = names(c)
         jac = len(nm & ref_names) / max(len(nm | ref_names), 1)
         n = len(r["diffs"])
-        rows.append({"agent": os.path.basename(c), "games": n, "errors": r["errors"][:2],
+        rows.append({"agent": os.path.basename(os.path.dirname(c)) if c.endswith("/main.py") else os.path.basename(c), "games": n, "errors": r["errors"][:2],
                      "wins": sum(x > 0 for x in r["diffs"]), "mean_diff": round(sum(r["diffs"]) / n) if n else None,
                      "mean_money": round(sum(r["money"]) / n) if n else None,
                      "ms_step": round(max(r["ms"]), 2) if n else None, "jaccard_ref": round(jac, 3)})

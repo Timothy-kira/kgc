@@ -1,0 +1,31 @@
+Final market order revision, 22 September 2026. Apache-2.0.
+
+The complete inherited source and every original embedded notice are retained byte-for-byte in main.py. Upstream public source: https://www.kaggle.com/code/haideptry/the-2965-master-hybrid-engine
+
+Kaggriculture route-replay chassis (pure Python, stdlib only).
+
+A *route* is a pre-computed tape of 719 Kaggle-format actions
+``{"farmer": [op, ...], "hands": [[op, ...], ...], "market": [[order, item, qty], ...]}``.
+The chassis replays the tape chosen by a caller-supplied ``router`` and wraps it
+in small reactive layers (each independently switchable via ``settings``):
+
+    hand_align            pad/truncate hands to the real hand count      (fieldbook_logic)
+    weed_repair           DIG a weed that blocks PLANT/BUILD, replay      (tetsutani + task spec)
+    sell_lead             sell next step's lots one step early            (fieldbook _lead_sale)
+    front_run             sell before the opponent's scheduled SELL       (hook; opponent_plan)
+    budget_guard          fund each 72-step block's purchases             (six_day_budget_guard.hpp)
+    room_guard            keep shed <= 99 at hour 23                      (tetsutani)
+    clamp_sells           trim SELL orders to the projected shed          (tetsutani)
+    dead_stock            sell stock the route will never sell            (tetsutani)
+    terminal_liquidation  step >= 718: sell the whole projected shed      (fieldbook _terminal_sale)
+
+Engine facts (verified against kaggle_environments 1.32.7, env_1_32_7.py):
+  observation["farms"][p] = {"money", "tiles"[y][x], "farmer"[x,y], "hands"[[x,y]..],
+                             "unlocked_quadrants", "hires_today"}
+  tiles: None (empty) | "LOCKED" | {"kind": WEED|COOP|PASTURE|PLANT, "crop"/"animal", ...}
+  observation["private"] = {"shed": {item: n}, "seeds": {crop: n}, "inventories": [{}...]}
+  observation["market"] = {"inventory": {...}, "prices": {...}}
+  observation["town"] = {"unlocked_shops": [...]}
+  Agents act on steps 0..718 (interpreter marks DONE once step >= episodeSteps-2).
+
+The appended experimental wrapper reapplies the inherited contiguous SELL-block ordering after the final sale-advance and queue layers.

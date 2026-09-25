@@ -1,0 +1,16 @@
+E184 Sale Window, modified September 10, 2026 by Dmitrii Gluzdov.
+Parent: prvsiyan, Kaggriculture Frontier | The Moon Counts Melons, public v37.
+https://www.kaggle.com/code/prvsiyan/kaggriculture-frontier-the-moon-counts-melons
+Original 13 production tapes: yhay81, Shop Router 0909.
+https://www.kaggle.com/code/yhay81/shop-router-0909
+Sale timing and shed projection credit: aurax7, Reactive Router.
+https://www.kaggle.com/code/aurax7/kaggriculture-reactive-router
+Parent terminal collection credits Dmitrii Gluzdov's Seven-Turn Rescue.
+All original in-source author notices are retained. Apache License 2.0.
+
+Changes: sale reservations across two or three known future own actions;
+per-due-step debt avoids counting an advanced sale twice; stock projection
+runs after all worker repairs; queue, consumer, capacity and route-boundary
+guards. Routes, feed and crop-investment logic remain inherited.
+Packaging: inline route JSON restored as actions.json, complete license moved
+from comments to LICENSE.txt; executable source remains readable, uncompressed.
