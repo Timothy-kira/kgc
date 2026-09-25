@@ -222,8 +222,9 @@ def main():
     rank = int(os.environ.get("RANK", "0"))
     if world > 1:
         import torch.distributed as dist
-        dist.init_process_group("nccl")
-        torch.cuda.set_device(int(os.environ.get("LOCAL_RANK", "0")))
+        dist.init_process_group("nccl" if torch.cuda.is_available() else "gloo")   # gloo: local CPU DDP tests
+        if torch.cuda.is_available():
+            torch.cuda.set_device(int(os.environ.get("LOCAL_RANK", "0")))
     device = f"cuda:{torch.cuda.current_device()}" if torch.cuda.is_available() else "cpu"
     ms = a.min_score if a.min_score is not None else (2800 if a.stage == "mid" else 1800)
     lr = a.lr or {"pre": 1e-3, "mid": 2e-4, "engram": 3e-4}[a.stage]
@@ -251,8 +252,9 @@ def main():
         print("init", net.load_state_dict(sd, strict=False), flush=True)
     core = net
     if world > 1:
-        net = torch.nn.parallel.DistributedDataParallel(net, device_ids=[torch.cuda.current_device()],
-                                                        find_unused_parameters=True)
+        net = torch.nn.parallel.DistributedDataParallel(
+            net, device_ids=[torch.cuda.current_device()] if torch.cuda.is_available() else None,
+            find_unused_parameters=True, static_graph=bool(int(os.environ.get("KGC_STATIC_GRAPH", "1" if a.stage == "engram" else "0"))))
         core = net.module
     n_params = sum(p.numel() for p in net.parameters())
     print(f"device={device} params={n_params} train_files={len(train)} val_files={len(val)} min_score={ms}", flush=True)
