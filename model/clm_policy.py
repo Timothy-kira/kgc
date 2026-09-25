@@ -122,16 +122,18 @@ class CLMPolicy(Transformer):
         return self.embed(torch.tensor(SLOT_IDS, device=desc.device)[slot]) + self.action_enc(desc)
 
     # ------------------------------------------------------------------ training
-    def embed_all(self, ids, obs_feats, obs_type, dec_pos, dec_slot, dec_desc):
+    def embed_all(self, ids, obs_feats, obs_type, dec_pos, dec_slot, dec_desc, dec_keep=None):
         h = self.embed_inputs(ids, obs_feats, obs_type)
         if dec_pos is not None and dec_pos.numel():
             add = self.action_enc(dec_desc).to(h.dtype)
+            if dec_keep is not None:            # history dropout: hide which candidate was chosen (slot token stays)
+                add = add * dec_keep.to(h.dtype).unsqueeze(-1)
             h = h.index_put((dec_pos[:, 0], dec_pos[:, 1]), h[dec_pos[:, 0], dec_pos[:, 1]] + add)
         return h
 
     def forward_train(self, ids, obs_feats, obs_type, dec_pos, dec_slot, dec_desc, tgt_pos, tgt_kind, val_pos,
-                      mtp_pos=None, mtp_kind=None):
-        h0 = self.embed_all(ids, obs_feats, obs_type, dec_pos, dec_slot, dec_desc)
+                      mtp_pos=None, mtp_kind=None, dec_keep=None):
+        h0 = self.embed_all(ids, obs_feats, obs_type, dec_pos, dec_slot, dec_desc, dec_keep)
         sh = self.shared
         sh.compress_kv = sh.index_k = sh.topk_idxs = sh.index_scores = None
         h = self.backbone(h0, checkpoint=True)

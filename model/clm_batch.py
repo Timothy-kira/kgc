@@ -71,16 +71,19 @@ def layout(tr, max_steps=None):
     mtp_idx = np.nonzero(same)[0] + 1
     return dict(S=S, T=T, ids=ids, otype=otype, dec_pos=dec_pos, dec_slot=dslot, dec_desc=desc, tgt_pos=tgt_pos,
                 tgt_kind=kind, tgt_cand=dcand, val_pos=act_pos, mtp_pos=mtp_src, mtp_kind=kind[mtp_idx],
-                mtp_cand=dcand[mtp_idx])
+                mtp_cand=dcand[mtp_idx], L=L)
 
 
-def collate(trajs, device="cpu", max_steps=None, value_every=4, loser_w=0.5):
+def collate(trajs, device="cpu", max_steps=None, value_every=4, loser_w=0.5, hist_drop=0.0, rng=None):
+    """hist_drop: per-step probability of hiding the chosen candidates of that step from the input (targets are
+    kept). Counters the copycat shortcut of repeating the previous step's decisions."""
     lays = [layout(t, max_steps) for t in trajs]
     B, S = len(trajs), max(l["S"] for l in lays)
     ids = np.full((B, S), 8, np.int64)
     otype = np.full((B, S), -1, np.int8)
     cat = {k: [] for k in ("dec_pos", "dec_slot", "dec_desc", "tgt_pos", "tgt_kind", "tgt_cand", "tgt_w", "val_pos",
-                           "val_tgt", "mtp_pos", "mtp_kind", "mtp_cand")}
+                           "val_tgt", "mtp_pos", "mtp_kind", "mtp_cand", "dec_keep")}
+    rng = rng or np.random
     prod, glob, tiles, units = [], [], [], []
     for b, (tr, l) in enumerate(zip(trajs, lays)):
         ids[b, :l["S"]] = l["ids"]
@@ -90,6 +93,9 @@ def collate(trajs, device="cpu", max_steps=None, value_every=4, loser_w=0.5):
         cat["dec_pos"].append(bb(l["dec_pos"])); cat["dec_slot"].append(l["dec_slot"]); cat["dec_desc"].append(l["dec_desc"])
         cat["tgt_pos"].append(bb(l["tgt_pos"])); cat["tgt_kind"].append(l["tgt_kind"]); cat["tgt_cand"].append(l["tgt_cand"])
         cat["tgt_w"].append(np.full(len(l["tgt_pos"]), w, np.float32))
+        keep_step = (rng.random(l["T"]) >= hist_drop).astype(np.float32)
+        cat["dec_keep"].append(np.repeat(keep_step, l["L"]) if hist_drop > 0
+                               else np.ones(len(l["dec_pos"]), np.float32))
         v = l["val_pos"][::value_every]
         cat["val_pos"].append(bb(v)); cat["val_tgt"].append(np.tile([[tr["win"], tr["diff"]]], (len(v), 1)).astype(np.float32))
         cat["mtp_pos"].append(bb(l["mtp_pos"])); cat["mtp_kind"].append(l["mtp_kind"]); cat["mtp_cand"].append(l["mtp_cand"])

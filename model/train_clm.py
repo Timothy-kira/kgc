@@ -59,8 +59,9 @@ class Loader:
     """Background producer: files -> trajectories (shuffle buffer) -> collated pinned batches."""
 
     def __init__(self, files, batch, min_score, crop_steps, device, epochs=10 ** 9, seed=0, n_threads=3, qsize=6,
-                 loser_w=0.5):
+                 loser_w=0.5, hist_drop=0.0):
         self.files, self.batch, self.min_score, self.loser_w = list(files), batch, min_score, loser_w
+        self.hist_drop = hist_drop
         self.crop_steps, self.device, self.epochs = crop_steps, device, epochs
         self.q = queue.Queue(maxsize=qsize)
         self.traj_q = queue.Queue(maxsize=64)
@@ -87,6 +88,7 @@ class Loader:
 
     def _batches(self, seed):
         rng = random.Random(seed)
+        nrng = np.random.default_rng(seed)
         buf = []
         while not self.stop:
             t = self.traj_q.get()
@@ -96,7 +98,7 @@ class Loader:
                 return
             buf.append(crop(t, self.crop_steps, rng))
             if len(buf) >= self.batch:
-                b = collate(buf[:self.batch], device="cpu", loser_w=self.loser_w)
+                b = collate(buf[:self.batch], device="cpu", loser_w=self.loser_w, hist_drop=self.hist_drop, rng=nrng)
                 if self.device.startswith("cuda"):
                     b = {k: v.pin_memory() for k, v in b.items()}
                 self.q.put(b)
@@ -133,7 +135,7 @@ def compute_loss(net, b, dtype, coefs):
     feats = obs_feats(b, dtype)
     fwd = (lambda *x: net(*x)) if hasattr(net, "module") else net.forward_train
     lu, lm, value, mtp, aux = fwd(b["ids"], feats, b["otype"], b["dec_pos"], b["dec_slot"], b["dec_desc"],
-                                  b["tgt_pos"], b["tgt_kind"], b["val_pos"], b["mtp_pos"], b["mtp_kind"])
+                                  b["tgt_pos"], b["tgt_kind"], b["val_pos"], b["mtp_pos"], b["mtp_kind"], b.get("dec_keep"))
     k, c, w = b["tgt_kind"], b["tgt_cand"], b["tgt_w"]
     cu, cm, wu, wm = c[k == 0], c[k == 1], w[k == 0], w[k == 1]
     ce_u = F.cross_entropy(lu.float(), cu, reduction="none")
@@ -182,6 +184,8 @@ def main():
     ap.add_argument("--save_every", type=int, default=500)
     ap.add_argument("--dim", type=int, default=128)
     ap.add_argument("--n_layers", type=int, default=6)
+    ap.add_argument("--hist_drop", type=float, default=0.5,
+                    help="per-step prob. of hiding past chosen candidates from the input (anti-copycat)")
     ap.add_argument("--loser_w", type=float, default=None, help="imitation weight of the losing side (win=1)")
     ap.add_argument("--bwd", type=float, default=1.0, help="weight of CLM backward in-batch InfoNCE")
     a = ap.parse_args()
@@ -225,7 +229,8 @@ def main():
     print("amp dtype", amp_dtype, "world", world, flush=True)
     opt = torch.optim.AdamW(net.parameters(), lr=lr, betas=(0.9, 0.95), weight_decay=0.05)
     coefs = {"value": 0.2, "mtp": 0.3, "index": 0.1, "bwd": a.bwd}
-    loader = Loader(train, a.batch, ms, a.crop_steps, device, epochs=a.epochs, loser_w=loser_w)
+    loader = Loader(train, a.batch, ms, a.crop_steps, device, epochs=a.epochs, loser_w=loser_w,
+                    hist_drop=a.hist_drop)
     print("loader started", flush=True)
     deadline = time.time() + a.max_hours * 3600
     t0, tl = time.time(), time.time()

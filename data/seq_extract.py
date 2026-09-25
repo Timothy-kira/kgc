@@ -22,11 +22,50 @@ from agent.obs_tokens import build_step
 from data.replay_db import ReplayDB, _unz
 
 
-def extract_episode(r):
+PASS = {"farmer": ["PASS"], "hands": [], "market": []}
+
+
+def effective_action(a, hands_before, hands_after, quads_before, quads_after, day_boundary):
+    """Keep only the atomic market orders that actually executed. Top players queue many HIRE orders every
+    step, most of which fail for lack of money (daily fib-priced hires); imitating the *submitted* list teaches
+    'hire a lot' regardless of money. Within a day hands only accumulate, so the number of successful hires is
+    the hand-count delta (same for BUY_LAND and unlocked quadrants). Hires are processed in order, so the first
+    k HIRE orders are the executed ones. Steps that cross a day boundary (hands reset) are left unchanged."""
+    if not isinstance(a, dict):
+        return PASS
+    market = a.get("market") or []
+    if day_boundary or not market:
+        return a
+    keep = {"HIRE": max(0, hands_after - hands_before), "BUY_LAND": max(0, quads_after - quads_before)}
+    out = []
+    for o in market:
+        op = o[0] if isinstance(o, (list, tuple)) and o else None
+        if op in keep:
+            if keep[op] <= 0:
+                continue
+            keep[op] -= 1
+        out.append(o)
+    if len(out) == len(market):
+        return a
+    return {**a, "market": out}
+
+
+def extract_episode(r, relabel=False):
     acts = r["actions"]
+    tpd = 24
+    try:
+        import json as _json
+        tpd = int(_json.loads(r["config"]).get("turnsPerDay") or 24)
+    except Exception:
+        pass
     trk = [Tracker(), Tracker()]
-    rec = [dict(prod=[], glob=[], tiles=[], units=[], act=[], off=[0]) for _ in range(2)]
+    rec = [dict(prod=[], glob=[], tiles=[], units=[], raw=[], nh=[], nq=[]) for _ in range(2)]
     for t, env in ReplayDB.rebuild(None, r["episode_id"], row=r):
+        for p in (0, 1):
+            o = env.obs(p, copy_obs=False)
+            f = o["farms"][p]
+            rec[p]["nh"].append(len(f["hands"]))
+            rec[p]["nq"].append(len(f.get("unlocked_quadrants") or []))
         if t >= len(acts) or env.done:
             break
         for p in (0, 1):
@@ -34,11 +73,17 @@ def extract_episode(r):
             trk[p].update(o)
             P, G, _, _ = trk[p].features(None)
             st = build_step(o, P, G)
-            a = acts[t][p]
-            ids = encode(a if isinstance(a, dict) else {"farmer": ["PASS"], "hands": [], "market": []})
             R = rec[p]
             R["prod"].append(st["prod"]); R["glob"].append(st["glob"])
             R["tiles"].append(st["tiles"]); R["units"].append(st["units"])
+            R["raw"].append(acts[t][p])
+    for p in (0, 1):
+        R = rec[p]
+        R["act"], R["off"] = [], [0]
+        for t, a in enumerate(R["raw"]):
+            if relabel and t + 1 < len(R["nh"]):
+                a = effective_action(a, R["nh"][t], R["nh"][t + 1], R["nq"][t], R["nq"][t + 1], (t + 1) % tpd == 0)
+            ids = encode(a if isinstance(a, dict) else PASS)
             R["act"].extend(ids); R["off"].append(len(R["act"]))
     out = []
     for p in (0, 1):
