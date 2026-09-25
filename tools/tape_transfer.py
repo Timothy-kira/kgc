@@ -1,10 +1,16 @@
 """Can top teams' games serve as plans (tapes) executed by cha22's repair chassis?
 
 python -m tools.tape_transfer <replay_db_dir> [teams=DSM,Mother-Goose] [seeds=6] [tapes_per_seed=2] [procs=4]
-For each test seed: compute its first two shops (they depend on the seed only), pick top-team episodes recorded
-in a world with the same first two shops, and play cha22 with its route replaced by that team's action
+For each test seed: compute its first two shops, pick top-team episodes recorded in a world with the same first
+two shops, and play cha22 with its route replaced by that team's action
 sequence: variant A from day 6 on (after cha22's own opening, i.e. where cha22's router itself switches),
 variant B from step 0. Opponent: cha22. Reports money difference vs the unmodified cha22 on the same seed.
+
+CAVEAT (found 2026-09-25): shops are NOT a function of the seed alone. The end-of-day RNG draws one number per
+empty tile of both farms (weed spawning) before drawing the next shop, so the shop sequence depends on both
+players' farm states.  (PASS play) matched the real first two shops in 0/6 cha22 games, so the
+-30.6k / -37.4k results below were not actually shop-matched. Match on the shops observed in each replay and
+in the live game at step 145 instead.
 """
 import collections
 import json
