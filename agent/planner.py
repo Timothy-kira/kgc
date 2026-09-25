@@ -30,6 +30,8 @@ PROFILE = {
     "zone_penalty": 4,
     "hire_div": 20.0,
     "hire_cap": 11,
+    "plants_per_unit": 13,
+    "water_daily": 7,                # priority of optional (non-urgent, no-gain) watering; 0 = skip (sweep: 7 best)
     "phases": [  # (from_day, crop targets, animal targets)
         # early cash engine: 12 melons on day 0 (6 x 250 each around day 10-12), wheat for feed / quick cash
         # animals are the engine: fed + cared daily they bank a bonus paid on each production
@@ -129,11 +131,23 @@ class TopPlanner:
                 seed, first, maxd, interval, maxy, ongoing = CROPS[c]
                 age = d - t["planted_day"]
                 if not t["watered_today"]:
-                    # water first; urgency grows when it already missed a day
-                    tasks.append((9 + 3 * t["consecutive_unwatered"], "WATER", pos))
+                    # Water only when it pays: a plant that missed yesterday dies tonight (must); one-time crops gain
+                    # yield only inside their bonus window; ongoing crops gain nothing from water unless fertilized.
+                    # Otherwise every other day is enough (death needs two dry days in a row).
+                    in_window = (not ongoing) and (maxd + 1) // 2 <= age <= maxd
+                    fert = t.get("fertilized_until_day", -1) >= d
+                    if t["consecutive_unwatered"] >= 1:
+                        tasks.append((12, "WATER", pos))
+                    elif in_window or (ongoing and fert):
+                        tasks.append((8, "WATER", pos))
+                    elif self.p["water_daily"]:
+                        tasks.append((self.p["water_daily"], "WATER", pos))
                 if t.get("yield_units", 0) > 0 and age >= first:
-                    if not ongoing and age >= maxd:
-                        tasks.append((12, "HARVEST", pos))          # decays from tomorrow on
+                    cap = maxy if t.get("fertilized_until_day", -1) >= 0 or c == "MELON" else min(maxy, 1 + (maxd - (maxd + 1) // 2 + 1))
+                    if not ongoing and (age >= maxd or t.get("yield_units", 0) >= cap):
+                        # harvest as soon as the yield is maxed (melon hits 6 at age 10, not 12): earlier cash,
+                        # before the market fills up; decays from day planted+max_yield_day+1 on
+                        tasks.append((12, "HARVEST", pos))
                     elif ongoing:
                         tasks.append((9 + t.get("yield_units", 0), "HARVEST", pos))   # held yield caps at 4
                 if t.get("fertilized_until_day", -1) < d:
@@ -182,7 +196,7 @@ class TopPlanner:
         counts = dict(crops)
         live = sum(crops.values())
         crew = min(15, max(4, len(self.units)))
-        capacity = crew * 9
+        capacity = crew * self.p["plants_per_unit"]   # every-other-day watering outside yield windows
         for pos in reversed(ordered):
             if live >= capacity:
                 break
