@@ -63,7 +63,7 @@ class _V4:
             ch = _base._IMPL.chassis
             routes = sorted(ch.routes)
             if _W:
-                blob = torch.load(_io.BytesIO(_b64.b64decode(_W)), map_location="cpu")
+                blob = torch.load(_io.BytesIO(_b64.b64decode(_W)), map_location="cpu", weights_only=False)
                 vocab = _re.RouteVocab(codes=[])
                 vocab.keys = blob["vocab_keys"]
                 vocab.size = 2 + vocab.n_shop + len(vocab.keys)
