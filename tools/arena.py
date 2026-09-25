@@ -1,10 +1,7 @@
 import sys, time, importlib.util, uuid, json, random, itertools, multiprocessing as mp
 def load(path):
-    name = "ag_" + uuid.uuid4().hex
-    spec = importlib.util.spec_from_file_location(name, path)
-    m = importlib.util.module_from_spec(spec); sys.modules[name] = m
-    spec.loader.exec_module(m)
-    return m.agent
+    from agent.loader import load_agent          # Kaggle's entry rule (last callable), not module.agent
+    return load_agent(path)
 def play(args):
     a, b, seed = args
     from kaggle_environments import make

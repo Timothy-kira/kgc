@@ -17,23 +17,15 @@ import uuid
 
 import numpy as np
 
+from agent.loader import load_agent as kaggle_load_agent
+
 PASS = {"farmer": ["PASS"], "hands": [], "market": []}
 
 
 def load_agent(path):
     if path == "pass":
         return lambda obs, cfg=None: PASS
-    name = "opp_" + uuid.uuid4().hex
-    spec = importlib.util.spec_from_file_location(name, path)
-    m = importlib.util.module_from_spec(spec)
-    sys.modules[name] = m
-    spec.loader.exec_module(m)
-    import inspect
-    try:
-        n = len(inspect.signature(m.agent).parameters)
-    except (TypeError, ValueError):
-        n = 2
-    return m.agent if n >= 2 else (lambda obs, cfg=None, f=m.agent: f(obs))
+    return kaggle_load_agent(path)          # Kaggle's entry rule (last callable), not module.agent
 
 
 def play_one(job):

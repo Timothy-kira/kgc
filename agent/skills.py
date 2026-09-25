@@ -13,25 +13,22 @@ internal trackers consistent even when another expert's action was executed).
 """
 import copy
 import functools
-import importlib.util
 import inspect
 import re
-import sys
 import time
-import uuid
 
 from agent.action_space import SLOT_MARKET, STOP, action_to_decisions
+from agent.loader import call_adapter, entry_name, load_module
 
 PASS = {"farmer": ["PASS"], "hands": [], "market": []}
-_PARENT_RE = re.compile(r"^(_[A-Za-z0-9_]+)\s*=\s*agent\s*$", re.M)
+# `_X_PARENT = agent`, `_E410_PARENT = cha20_entry_agent`, `_R46_SHEEP_AGENT = agent`, ...
+_PARENT_RE = re.compile(r"^(_[A-Za-z0-9_]+)\s*=\s*([A-Za-z0-9_]*agent)\s*$", re.M)
 
 
 def _load(path):
-    name = "skill_" + uuid.uuid4().hex
-    spec = importlib.util.spec_from_file_location(name, path)
-    m = importlib.util.module_from_spec(spec)
-    sys.modules[name] = m
-    spec.loader.exec_module(m)
+    """Module + Kaggle entry callable (see agent/loader.py). Kept as `_load(path).agent`-compatible."""
+    m = load_module(path)
+    m.agent = call_adapter(getattr(m, entry_name(m))) if entry_name(m) != "agent" else m.agent
     return m
 
 
@@ -40,8 +37,9 @@ class LayeredExpert:
 
     def __init__(self, path, name=None, record_layers=True):
         self.path, self.name = path, name or path.rsplit("/", 1)[-1].replace(".py", "")
-        self.m = _load(path)
-        fn = self.m.agent
+        self.m = load_module(path)
+        self.entry = entry_name(self.m)                      # what Kaggle actually runs
+        fn = getattr(self.m, self.entry)
         try:
             self.n_args = len(inspect.signature(fn).parameters)
         except (TypeError, ValueError):
@@ -50,7 +48,7 @@ class LayeredExpert:
         self._rec = {}
         if record_layers:
             src = open(path).read()
-            for g in dict.fromkeys(_PARENT_RE.findall(src)):          # source order = stack order
+            for g in dict.fromkeys(n for n, _ in _PARENT_RE.findall(src)):   # source order = stack order
                 f = getattr(self.m, g, None)
                 if callable(f):
                     setattr(self.m, g, self._recorder(g, f))
@@ -70,7 +68,8 @@ class LayeredExpert:
     def __call__(self, obs, cfg=None):
         self._rec.clear()
         try:
-            act = self.m.agent(obs, cfg) if self.n_args >= 2 else self.m.agent(obs)
+            fn = getattr(self.m, self.entry)
+            act = fn(obs, cfg) if self.n_args >= 2 else fn(obs)
         except Exception:
             act = PASS
         act = act if isinstance(act, dict) else PASS

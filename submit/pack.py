@@ -42,7 +42,7 @@ _BASE_SRC = {base_src!r}
 _base_mod = _types.ModuleType("base_executor")
 _base_mod.__dict__["__name__"] = "base_executor"
 exec(compile(_BASE_SRC, "base_executor.py", "exec"), _base_mod.__dict__)
-_base_agent = _base_mod.agent
+_base_agent = [v for k, v in _base_mod.__dict__.items() if callable(v) and not k.startswith("__")][-1]   # Kaggle entry rule
 
 # ---------------- features ----------------
 {feats}
