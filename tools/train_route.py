@@ -81,7 +81,7 @@ def main():
     model = RouteEngram(vocab.size, routes)
     Xtr, Ytr, Mtr, Dtr = tensors(tr, vocab, routes)
     Xte, Yte, Mte, Dte = tensors(te, vocab, routes) if te else (None,) * 4
-    opt = torch.optim.AdamW(model.parameters(), lr=3e-3, weight_decay=1e-4)
+    opt = torch.optim.AdamW(model.parameters(), lr=3e-3, weight_decay=float(__import__('os').environ.get('ROUTE_WD', '1e-2')))
     print(f"games train {len(tr)} test {len(te)} routes {len(routes)} vocab {vocab.size}", flush=True)
     for ep in range(epochs):
         model.train()
@@ -100,6 +100,10 @@ def main():
             if te:
                 msg["test"] = evaluate(model, Xte, Yte, Mte, Dte, routes, te, margin)
             print(json.dumps(msg), flush=True)
+    if te:                                   # conservative switching threshold: sweep on held-out games
+        sweep = {m: evaluate(model, Xte, Yte, Mte, Dte, routes, te, m) for m in (0.1, 0.2, 0.3, 0.5, 0.8)}
+        for m, r in sweep.items():
+            print(json.dumps({"margin": m, **r}), flush=True)
     torch.save({"state": model.state_dict(), "routes": routes, "vocab_keys": vocab.keys, "margin": margin}, out)
     print("saved", out)
 
