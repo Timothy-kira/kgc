@@ -43,7 +43,10 @@ def crop(tr, crop_steps, rng):
     T = len(tr["prod"])
     if not crop_steps or T <= crop_steps:
         return tr
-    s0 = rng.randrange(0, T - crop_steps + 1)
+    # every step equally likely to be covered: draw the start in [-(crop-1), T-1] and clip. A plain uniform start
+    # in [0, T-crop] covers step 0 with prob 1/(T-crop+1) (~0.2-0.4%), i.e. the opening - the decisive economic
+    # decisions of the first steps - was almost never trained
+    s0 = min(max(rng.randrange(-crop_steps + 1, T), 0), T - crop_steps)
     s1 = s0 + crop_steps
     off = tr["act_off"]
     a0, a1 = off[s0], off[s1]
