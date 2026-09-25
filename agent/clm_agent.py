@@ -18,6 +18,7 @@ import torch.nn.functional as F
 
 from agent.action_space import (MAX_ORDERS, SLOT_FARMER, SLOT_HAND, SLOT_MARKET, STOP, UNIT_NONE, SlotPlan,
                                 cand_to_order, cand_to_unit, decisions_to_action)
+from agent.expert_pool import slot_table
 from agent.skills import market_proposal, slot_proposals
 from agent.features import Tracker
 from agent.obs_tokens import OBS_TYPES, TYPE_OF_SLOT, build_step, quad_features
@@ -38,8 +39,11 @@ def load_clm(weights, args_json):
 
 class CLMAgent:
     def __init__(self, net, temperature=0.0, time_budget=0.85, seed=None, hier=None, skills=None,
-                 favour=None, favour_margin=5.0):
+                 favour=None, favour_margin=5.0, pool=None):
         self.net = net
+        # DSV4.1-style expert pool (agent/expert_pool.ExpertPool): shared heuristic expert + routed experts
+        self.pool = pool if getattr(net, "hmoe", None) is not None else None
+        self.gate_log = []                          # (step, slot, routed skill idx or -1 = shared) for analysis
         # heuristic skill experts (agent/skills.SkillPool) routed by the H-MoE layer (model/hmoe.py)
         self.skills = skills if getattr(net, "hmoe", None) is not None else None
         if self.skills is not None and favour is not None:
@@ -98,6 +102,8 @@ class CLMAgent:
         net = self.net
         n_hands = len(obs["farms"][int(obs["player"])]["hands"])
         skill = self._skill_proposals(obs, config, n_hands) if self.skills is not None else None
+        if self.pool is not None:
+            return self._pool_step(obs, config, n_hands, t0)
         h = self._feed(torch.cat([self._obs_embeddings(obs), self.act_emb], 0))
         plan = SlotPlan(n_hands)
         decisions = []
@@ -141,6 +147,55 @@ class CLMAgent:
         if skill is not None:
             return self._build_action(decisions, raw)
         return decisions_to_action(decisions)
+
+    # ------------------------------------------------------------------ expert-pool (shared + routed) path
+    @torch.inference_mode()
+    def _pool_step(self, obs, config, n_hands, t0):
+        net = self.net
+        shared, partials = self.pool.propose(obs, config)
+        tab = slot_table(shared, partials, n_hands)
+        h = self._feed(torch.cat([self._obs_embeddings(obs), self.act_emb], 0))
+        plan = SlotPlan(n_hands)
+        decisions, raw = [], []
+        pos_unit, j = 0, 0
+        while not plan.done:
+            slot, mask = plan.mask()
+            if slot == SLOT_MARKET:
+                props, (s_c, s_raw) = tab["market_c"][min(j, len(tab["market_c"]) - 1)], tab["market_shared"][min(j, len(tab["market_shared"]) - 1)]
+                raws, z, desc = tab["market_raw"][min(j, len(tab["market_raw"]) - 1)], self.zm, self.desc_m
+            else:
+                props, (s_c, s_raw) = tab["unit_c"][pos_unit], tab["unit_shared"][pos_unit]
+                raws, z, desc = tab["unit_raw"][pos_unit], self.zu, self.desc_u
+            if time.time() - t0 > self.time_budget:          # out of time: the shared expert decides
+                c, r, who = s_c, s_raw, -1
+            else:
+                lg, w, cand, idx = net.hmoe_logits(h[None], torch.tensor([slot]), torch.tensor([props]), z,
+                                                   torch.tensor([s_c]))
+                lg = lg[0]
+                if mask is not None:
+                    lg = lg.masked_fill(~torch.from_numpy(mask), -1e9)
+                c = self._pick(lg, desc)
+                r, who = None, None
+                if c == s_c:
+                    r, who = s_raw, -1
+                else:
+                    for k_i, cc, ww in zip(idx[0].tolist(), cand[0].tolist(), w[0].tolist()):
+                        if cc == c and ww > 0:
+                            r, who = raws[k_i], k_i
+                            break
+            self.gate_log.append((int(obs["step"]), int(slot), who))
+            plan.feed(slot, c)
+            decisions.append((slot, c))
+            raw.append(r)
+            if slot == SLOT_MARKET:
+                j += 1
+            else:
+                pos_unit += 1
+            enc = (self.enc_m if slot == SLOT_MARKET else self.enc_u)[c]
+            h = self._feed((self.slot_emb[min(slot, 2)] + enc).unsqueeze(0))
+        self.times.append(time.time() - t0)
+        self.trace.append(decisions)
+        return self._build_action(decisions, raw)
 
     # ------------------------------------------------------------------ heuristic MoE path
     def _skill_proposals(self, obs, config, n_hands):
