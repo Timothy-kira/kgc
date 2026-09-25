@@ -45,6 +45,10 @@ def job(j):
         o = [env.obs(0), env.obs(1)]
         a, b = me(o[seat], env.config), opp(o[1 - seat], env.config)
         env.step(*((a, b) if seat == 0 else (b, a)))
+    o144 = env.obs(seat)
+    feat = {"my_money": o144["farms"][seat]["money"], "opp_money": o144["farms"][1 - seat]["money"],
+            "opp_tiles": sum(1 for row in o144["farms"][1 - seat]["tiles"] for c in row if isinstance(c, dict)),
+            "my_tiles": sum(1 for row in o144["farms"][seat]["tiles"] for c in row if isinstance(c, dict))}
     ch = m._IMPL.chassis
     base = ch.router
     routes = sorted(ch.routes)
@@ -59,7 +63,7 @@ def job(j):
         return env.money[seat] - env.money[1 - seat]
 
     sim = fork_branches(routes, branch, max_parallel=1)
-    return j, {str(r): v for r, v in zip(routes, sim) if not isinstance(v, Exception)}
+    return j, {str(r): v for r, v in zip(routes, sim) if not isinstance(v, Exception)}, feat
 
 
 def main():
@@ -70,12 +74,13 @@ def main():
         from data.replay_db import ReplayDB
         DB["db"] = ReplayDB(sys.argv[5])
     rows = [json.loads(l) for l in open(src) if l.strip()]
-    rows = [r for r in rows if str(r.get("default_route")) in r["results"]][:n]
+    done = {json.loads(l)["job"] for l in open(out) if l.strip()} if os.path.exists(out) else set()
+    rows = [r for r in rows if str(r.get("default_route")) in r["results"] and r["job"] not in done][:n]
     ROWS.update({r["job"]: r for r in rows})
     by_job = {r["job"]: r for r in rows}
     gains, oracle = [], []
     with warm_pool(procs, maxtasksperchild=1) as pool, open(out, "a") as f:
-        for j, sim in pool.imap_unordered(job, list(by_job)):
+        for j, sim, feat in pool.imap_unordered(job, list(by_job)):
             r = by_job[j]
             real = {k: v[0] - v[1] for k, v in r["results"].items()}
             base = real[str(r["default_route"])]
@@ -84,7 +89,7 @@ def main():
             gains.append(g)
             oracle.append(max(real.values()) - base)
             f.write(json.dumps({"job": j, "kind": r["kind"], "pick": pick, "default": r["default_route"], "gain": g,
-                                "sim": sim}) + "\n")
+                                "sim": sim, "feat": feat}) + "\n")
             f.flush()
             print(json.dumps({"job": j, "kind": r["kind"], "gain": round(g), "mean_gain": round(sum(gains) / len(gains)),
                               "oracle_mean": round(sum(oracle) / len(oracle)), "n": len(gains)}), flush=True)
