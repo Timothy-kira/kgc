@@ -92,6 +92,10 @@ class CLMPolicy(Transformer):
         self.register_buffer("unit_desc", torch.from_numpy(UNIT_DESC), persistent=False)
         self.register_buffer("market_desc", torch.from_numpy(MARKET_DESC), persistent=False)
         self._cand_cache = None
+        self.hmoe = None
+        if getattr(args, "n_skills", 0):
+            from model.hmoe import HeuristicMoE
+            self.hmoe = HeuristicMoE(args.dim, args.n_skills, topk=tuple(args.skill_topk))
 
     # ------------------------------------------------------------------ candidates
     def candidate_matrices(self, use_cache=False):
@@ -117,6 +121,25 @@ class CLMPolicy(Transformer):
         lu = s * zs[kind == 0] @ zu.t()
         lm = s * zs[kind == 1] @ zm.t()
         return lu, lm
+
+    # ------------------------------------------------------------------ heuristic MoE (model/hmoe.py)
+    def prop_encode(self, cand, slot_type):
+        """Action encodings of skill-proposed candidates (unit candidates for farmer/hand, market otherwise)."""
+        out = torch.empty(len(cand), self.args.dim, device=cand.device)
+        mk = slot_type == 2
+        if (~mk).any():
+            out[~mk] = self.action_enc(self.unit_desc[cand[~mk]]).float()
+        if mk.any():
+            out[mk] = self.action_enc(self.market_desc[cand[mk]]).float()
+        return out
+
+    def hmoe_logits(self, h, slot_type, props, z):
+        """h [n,dim] slot hidden states of ONE candidate family (z = zu or zm); props [n,E] skill proposals
+        (-1 = none). -> logits [n,N] = CLM score of the H-MoE output + pointer copy, gate weights, candidates."""
+        y, w, cand = self.hmoe(h, slot_type, props, self.prop_encode)
+        zs = F.normalize(self.state_head(y).float(), dim=-1)
+        logits = self.scale() * zs @ z.t()
+        return self.hmoe.pointer_logits(logits, w, cand), w, cand, self.hmoe.last_idx
 
     def decision_embedding(self, slot, desc):
         return self.embed(torch.tensor(SLOT_IDS, device=desc.device)[slot]) + self.action_enc(desc)

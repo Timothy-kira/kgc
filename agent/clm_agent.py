@@ -16,7 +16,9 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from agent.action_space import SLOT_MARKET, STOP, UNIT_NONE, SlotPlan, decisions_to_action
+from agent.action_space import (MAX_ORDERS, SLOT_FARMER, SLOT_HAND, SLOT_MARKET, STOP, UNIT_NONE, SlotPlan,
+                                cand_to_order, cand_to_unit, decisions_to_action)
+from agent.skills import market_proposal, slot_proposals
 from agent.features import Tracker
 from agent.obs_tokens import OBS_TYPES, TYPE_OF_SLOT, build_step, quad_features
 from model.clm_policy import ACT_ID, OBS_IDS, SLOT_IDS, CLMPolicy
@@ -35,8 +37,13 @@ def load_clm(weights, args_json):
 
 
 class CLMAgent:
-    def __init__(self, net, temperature=0.0, time_budget=0.85, seed=None, hier=None):
+    def __init__(self, net, temperature=0.0, time_budget=0.85, seed=None, hier=None, skills=None,
+                 favour=None, favour_margin=5.0):
         self.net = net
+        # heuristic skill experts (agent/skills.SkillPool) routed by the H-MoE layer (model/hmoe.py)
+        self.skills = skills if getattr(net, "hmoe", None) is not None else None
+        if self.skills is not None and favour is not None:
+            net.hmoe.favour(self.skills.names.index(favour), favour_margin)   # safe init: start as that skill
         # hierarchical greedy decoding: op -> item -> quantity by marginal probability (see _pick)
         self.hier = bool(int(os.environ.get("CLM_HIER", "0"))) if hier is None else hier
         self.temperature = temperature
@@ -89,12 +96,25 @@ class CLMAgent:
         if int(obs["step"]) == 0 and self.pos:
             self.reset()
         net = self.net
-        h = self._feed(torch.cat([self._obs_embeddings(obs), self.act_emb], 0))
         n_hands = len(obs["farms"][int(obs["player"])]["hands"])
+        skill = self._skill_proposals(obs, config, n_hands) if self.skills is not None else None
+        h = self._feed(torch.cat([self._obs_embeddings(obs), self.act_emb], 0))
         plan = SlotPlan(n_hands)
         decisions = []
+        raw = []                                   # exact skill item when the choice equals a routed proposal
         scale = float(net.scale())
         while not plan.done:
+            if skill is not None:
+                slot, mask = plan.mask()
+                c, r = self._hmoe_slot(h, slot, mask, skill, sum(1 for d in decisions if d[0] == SLOT_MARKET),
+                                       len([d for d in decisions if d[0] != SLOT_MARKET]),
+                                       time.time() - t0 > self.time_budget)
+                enc = (self.enc_m if slot == SLOT_MARKET else self.enc_u)[c]
+                plan.feed(slot, c)
+                decisions.append((slot, c))
+                raw.append(r)
+                h = self._feed((self.slot_emb[min(slot, 2)] + enc).unsqueeze(0))
+                continue
             slot, mask = plan.mask()
             late = time.time() - t0 > self.time_budget
             zs = F.normalize(net.state_head(h).float(), dim=-1)
@@ -118,7 +138,61 @@ class CLMAgent:
             h = self._feed((self.slot_emb[min(slot, 2)] + enc).unsqueeze(0))
         self.times.append(time.time() - t0)
         self.trace.append(decisions)
+        if skill is not None:
+            return self._build_action(decisions, raw)
         return decisions_to_action(decisions)
+
+    # ------------------------------------------------------------------ heuristic MoE path
+    def _skill_proposals(self, obs, config, n_hands):
+        acts = [a for _, a in self.skills.propose(obs, config)]
+        units, markets = slot_proposals(acts, n_hands)
+        raw_u, raw_m = [], []
+        for a in acts:
+            hands = a.get("hands") if isinstance(a.get("hands"), list) else []
+            raw_u.append([a.get("farmer")] + [hands[i] if i < len(hands) else ["PASS"] for i in range(n_hands)])
+            m = a.get("market") if isinstance(a.get("market"), list) else []
+            raw_m.append(m[:MAX_ORDERS])
+        return dict(units=units, markets=markets, raw_u=raw_u, raw_m=raw_m)
+
+    def _hmoe_slot(self, h, slot, mask, sk, j_market, pos_unit, late):
+        net = self.net
+        if slot == SLOT_MARKET:
+            props = market_proposal(sk["markets"], j_market)
+            z, desc = self.zm, self.desc_m
+        else:
+            props = [u[pos_unit] if pos_unit < len(u) else UNIT_NONE for u in sk["units"]]
+            z, desc = self.zu, self.desc_u
+        props_t = torch.tensor(props, dtype=torch.long)[None]
+        lg, w, cand, idx = net.hmoe_logits(h[None], torch.tensor([slot]), props_t, z)
+        lg, w, cand, idx = lg[0], w[0], cand[0], idx[0]
+        if mask is not None:
+            lg = lg.masked_fill(~torch.from_numpy(mask), -1e9)
+        if late and (cand >= 0).any():                          # out of time: follow the top-weighted skill
+            c = int(cand[int(torch.where(cand >= 0, w, torch.full_like(w, -1)).argmax())])
+        else:
+            c = self._pick(lg, desc)
+        r = None                                                # exact item of a routed skill that proposed c
+        for k_i, cc, ww in zip(idx.tolist(), cand.tolist(), w.tolist()):
+            if cc == c and ww > 0:
+                if slot == SLOT_MARKET:
+                    lst = sk["raw_m"][k_i]
+                    r = lst[j_market] if j_market < len(lst) else None
+                else:
+                    r = sk["raw_u"][k_i][pos_unit]
+                break
+        return c, r
+
+    @staticmethod
+    def _build_action(decisions, raw):
+        act = {"farmer": ["PASS"], "hands": [], "market": []}
+        for (slot, c), r in zip(decisions, raw):
+            if slot == SLOT_FARMER:
+                act["farmer"] = r if isinstance(r, list) and r else (cand_to_unit(c) or ["PASS"])
+            elif slot == SLOT_HAND:
+                act["hands"].append(r if isinstance(r, list) and r else (cand_to_unit(c) or ["PASS"]))
+            elif c != STOP:
+                act["market"].append(r if isinstance(r, list) else cand_to_order(c))
+        return act
 
     def _pick(self, lg, desc=None):
         if self.temperature > 0:

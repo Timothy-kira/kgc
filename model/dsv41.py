@@ -58,6 +58,10 @@ class ModelArgs:
     gate_temp: float = 1.0
     norm_topk_prob: bool = True
     route_scale: float = 1.0
+    # heuristic MoE action layer (model/hmoe.py): number of routed skill experts (0 = disabled) and top-k per
+    # slot type (farmer, hand, market)
+    n_skills: int = 0
+    skill_topk: tuple = (1, 1, 1)
     swiglu_limit: float = 10.0
     # attention
     q_lora_rank: int = 96
