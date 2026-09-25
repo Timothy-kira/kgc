@@ -17,7 +17,9 @@ from agent.skills import LayeredExpert
 from agent.top_experts import (CropMixExpert, DemandAwareSellExpert, LandExpert, OpeningExpert,
                                SellScheduleExpert)
 
-PUB = ["prvsiyan_frontier", "hakfield", "tetsutani_ms", "pilkwang_sep", "dmitrii_2c1s"]
+# public agents that cannot beat cha22 are dropped as experts (round robin: cha22 70-2; prvsiyan 2/8 vs cha22,
+# every other public agent 0/8), so by default no other public agent is routed
+PUB = []
 CHA22_LAYERS = ["_IG_PARENT", "_MG_PARENT", "_E402_PARENT", "_E410_PARENT"]   # skip the last patches
 
 

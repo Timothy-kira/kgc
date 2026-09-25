@@ -26,14 +26,20 @@ SHED_CAP = 100
 
 # DSM / Mother-Goose profile (tile targets per phase; animals as head counts)
 PROFILE = {
-    "land_days": (6, 9, 10),
+    "land_days": (6, 10, 40),        # sweep: the 4th quadrant (4000) did not pay back
+    "zone_penalty": 4,
+    "hire_div": 20.0,
+    "hire_cap": 11,
     "phases": [  # (from_day, crop targets, animal targets)
-        (0, {"WHEAT": 8, "STRAWBERRY": 6, "MELON": 6}, {"COW": 2, "SHEEP": 2, "GOOSE": 1}),
-        (4, {"WHEAT": 8, "STRAWBERRY": 10, "MELON": 8}, {"COW": 4, "SHEEP": 3, "GOOSE": 2}),
-        (8, {"WHEAT": 25, "STRAWBERRY": 25, "TOMATO": 13, "CARROT": 5}, {"COW": 6, "SHEEP": 4, "GOOSE": 6}),
-        (20, {"WHEAT": 27, "CARROT": 15, "TOMATO": 11, "STRAWBERRY": 12}, {"COW": 6, "SHEEP": 4, "GOOSE": 6}),
+        # early cash engine: 12 melons on day 0 (6 x 250 each around day 10-12), wheat for feed / quick cash
+        # animals are the engine: fed + cared daily they bank a bonus paid on each production
+        # (cow ~1.5 milk/day, sheep ~1.3 wool/day with care), so buy them early and never skip CARE
+        (0, {"MELON": 12, "WHEAT": 8}, {"COW": 2, "SHEEP": 2}),
+        (3, {"MELON": 12, "WHEAT": 10, "STRAWBERRY": 6}, {"COW": 4, "SHEEP": 4, "GOOSE": 1}),
+        (8, {"WHEAT": 22, "STRAWBERRY": 20, "TOMATO": 10, "CARROT": 5}, {"COW": 6, "SHEEP": 4, "GOOSE": 6}),
+        (20, {"WHEAT": 25, "CARROT": 14, "TOMATO": 8, "STRAWBERRY": 10}, {"COW": 6, "SHEEP": 4, "GOOSE": 6}),
     ],
-    "last_animal_day": {"GOOSE": 22, "COW": 16, "SHEEP": 17},
+    "last_animal_day": {"GOOSE": 22, "COW": 19, "SHEEP": 17},
     "sell_hours": {22, 23, 0, 1, 2},
     "sell_ratio": 0.9,          # sell while quote >= ratio * base
     "fert_min_price": 45,
@@ -51,8 +57,8 @@ def _age_ok(crop, day):
 class TopPlanner:
     def __init__(self, profile=None):
         self.p = dict(PROFILE, **(profile or {}))
-        self.tasks = {}          # unit index -> task tuple
-        self.last_step = -1
+        self.assign = {}         # unit index -> (kind, target pos): committed until done / invalid (reset daily)
+        self.assign_day = -1
 
     # ------------------------------------------------------------------ helpers
     def _parse(self, obs):
@@ -126,23 +132,26 @@ class TopPlanner:
                     # water first; urgency grows when it already missed a day
                     tasks.append((9 + 3 * t["consecutive_unwatered"], "WATER", pos))
                 if t.get("yield_units", 0) > 0 and age >= first:
-                    if ongoing or age >= maxd:
-                        ready_bonus = 6 if (not ongoing and self.hour >= 12) else 0
-                        tasks.append((8 + ready_bonus, "HARVEST", pos))
-                if (not ongoing and t.get("fertilized_until_day", -1) < d and
-                        (maxd + 1) // 2 - 1 <= age < maxd):
-                    tasks.append((3, "FERTILIZE", pos))
+                    if not ongoing and age >= maxd:
+                        tasks.append((12, "HARVEST", pos))          # decays from tomorrow on
+                    elif ongoing:
+                        tasks.append((9 + t.get("yield_units", 0), "HARVEST", pos))   # held yield caps at 4
+                if t.get("fertilized_until_day", -1) < d:
+                    if not ongoing and (maxd + 1) // 2 - 1 <= age < maxd:
+                        tasks.append((5, "FERTILIZE", pos))       # doubles the daily bonus in the yield window
+                    elif ongoing and first - 1 <= age <= first + interval * maxy:
+                        tasks.append((6, "FERTILIZE", pos))       # 2 units per production while fertilized
             elif "animal" in t:
                 a = t["animal"]
                 animals[a] = animals.get(a, 0) + 1
                 if not t["fed_today"]:
                     tasks.append((10 + 4 * t["consecutive_unfed"], "FEED", pos))
                 elif not t["cared_today"]:
-                    tasks.append((6, "CARE", pos))
+                    tasks.append((9, "CARE", pos))
                 if t.get("yield_units", 0) >= 2 or (t.get("yield_units", 0) >= 1 and self.hour >= 16):
                     tasks.append((7, "HARVEST", pos))
                 if t.get("fertilizer_available"):
-                    tasks.append((2, "COLLECT_FERTILIZER", pos))
+                    tasks.append((6, "COLLECT_FERTILIZER", pos))
             elif k in ("COOP", "PASTURE"):
                 structs.append((pos, k))
         return crops, animals, empty, weeds, structs, tasks
@@ -169,9 +178,15 @@ class TopPlanner:
                 plan[pos] = "BUILD_" + kind
                 ordered.remove(pos)
                 need -= 1
-        # crops: most-below-target crop that can still mature
+        # crops: most-below-target crop that can still mature, but never more live plants than the crew can water
         counts = dict(crops)
+        live = sum(crops.values())
+        crew = min(15, max(4, len(self.units)))
+        capacity = crew * 9
         for pos in reversed(ordered):
+            if live >= capacity:
+                break
+            live += 1
             best, gap = None, 0
             for c, n in ctarget.items():
                 if not _age_ok(c, self.day):
@@ -188,6 +203,8 @@ class TopPlanner:
                     continue
             plan[pos] = best
             counts[best] = counts.get(best, 0) + 1
+            if best == "MELON":
+                self._melons_today = getattr(self, "_melons_today", 0) + 1
         return plan, free_struct, want_struct
 
     # ------------------------------------------------------------------ unit actions
@@ -215,6 +232,13 @@ class TopPlanner:
         # spatial zones: split the columns of the board among units so they do not criss-cross the farm
         nu = len(self.units)
         zone = {ui: (ui * self.n // nu, (ui + 1) * self.n // nu) for ui in range(nu)}
+        if self.assign_day != self.day:
+            self.assign, self.assign_day = {}, self.day
+        valid = {(k, p) for _, k, p in tasks}
+        for ui in list(self.assign):
+            if ui >= len(self.units) or self.assign[ui] not in valid:
+                del self.assign[ui]
+        taken |= set(self.assign.values())
         for ui, pos in enumerate(self.units):
             inv = self.invs[ui]
             carrying = sum(v for k, v in inv.items() if k not in ANIMALS)
@@ -227,8 +251,9 @@ class TopPlanner:
                     self.shed_used += carrying
                     continue
             best, best_score = None, -1e9
+            committed = self.assign.get(ui)
             for pr, kind, tpos in tasks:
-                if (kind, tpos) in taken:
+                if (kind, tpos) in taken and committed != (kind, tpos):
                     continue
                 need_item = None
                 if kind == "FEED":
@@ -246,8 +271,10 @@ class TopPlanner:
                     d = self._dist(pos, tpos)
                 lo, hi = zone[ui]
                 if nu > 2 and not (lo <= tpos[0] < hi):
-                    d += 4
-                score = pr * 2 - d
+                    d += self.p["zone_penalty"]
+                score = pr * 2 - d + (6 if committed == (kind, tpos) else 0)   # stick to the committed task
+                if tpos == pos and not need_item:
+                    score += 20                                  # finish every job on the tile we stand on
                 if score > best_score:
                     best, best_score = (pr, kind, tpos, need_item), score
             if best is None:
@@ -259,12 +286,14 @@ class TopPlanner:
                 continue
             pr, kind, tpos, need_item = best
             taken.add((kind, tpos))
+            self.assign[ui] = (kind, tpos)
             if need_item and inv.get(need_item, 0) <= 0:
                 # fetch the item first
                 if at_shed:
                     if need_item == "WHEAT":
-                        unfed = sum(1 for _, k, _ in tasks if k == "FEED")
-                        n = max(1, min(wheat_shed, 6, 2 + unfed // max(1, len(self.units))))
+                        lo, hi = zone[ui]
+                        unfed = sum(1 for _, k, p in tasks if k == "FEED" and lo <= p[0] < hi)
+                        n = max(1, min(wheat_shed, 8, max(unfed, 2)))
                         wheat_shed -= n
                     elif need_item == "FERTILIZER":
                         n = min(fert_shed, 3)
@@ -299,13 +328,13 @@ class TopPlanner:
         d, h = self.day, self.hour
         # land on the top teams' schedule
         k = len(self.farm["unlocked_quadrants"]) - 1
-        if k < 3 and d >= self.p["land_days"][k] and money >= LAND[k] + 200:
+        if k < 3 and d >= self.p["land_days"][k] and money >= LAND[k] + 1200:
             orders.append(["BUY_LAND"])
             money -= LAND[k]
         # hires: enough hands for today's work
         if h <= 1:
-            work = sum(crops.values()) + 3 * sum(animals.values()) + len(plan)
-            target = int(min(14, max(4, math.ceil(work / 7.0))))
+            work = 3 * sum(crops.values()) + 8 * sum(animals.values()) + 4 * len(plan)   # unit-steps per day
+            target = int(min(self.p["hire_cap"], max(3, math.ceil(work / self.p["hire_div"]) - 1)))  # fib-priced hands
             have = len(self.units) - 1
             cost, n_today = 0, self.farm.get("hires_today", 0)
             fib = [1, 1]
@@ -341,11 +370,14 @@ class TopPlanner:
             if q > 0 and self.shed_used + q < SHED_CAP:
                 orders.append(["BUY_ANIMAL", a, q])
                 money -= q * cost
-        # feed wheat reserve (2 days)
+        # feed wheat: keep 3 days of feed; buy only the shortfall that our own ripe wheat will not cover today
         n_an = sum(animals.values())
         wheat_have = self.shed.get("WHEAT", 0) + sum(i.get("WHEAT", 0) for i in self.invs)
-        if wheat_have < 2 * n_an and self.shed_used < SHED_CAP - 5:
-            q = min(2 * n_an - wheat_have, int(money // max(1, self.prices.get("WHEAT", 25))))
+        ripe = sum(t.get("yield_units", 0) for _, t in self._cells() if isinstance(t, dict)
+                   and t.get("crop") == "WHEAT" and self.day - t["planted_day"] >= CROPS["WHEAT"][2])
+        need = n_an + 1 - wheat_have - ripe                      # today's feeding
+        if need > 0 and self.shed_used < SHED_CAP - 5:
+            q = min(need, int(max(0, self.money - 50) // max(1, self.prices.get("WHEAT", 25) + 2)))
             if q > 0:
                 orders.append(["BUY_PRODUCT", "WHEAT", q])
         # selling: demand-aware lots at the preferred hours; more when the shed fills; liquidate at the end
@@ -353,26 +385,32 @@ class TopPlanner:
         return (sells + orders)[:10]
 
     def _sells(self, n_an):
-        d, h = self.day, self.hour
+        """Demand-preserving selling relative to the CURRENT quote: each step sell at most what keeps our own
+        price impact within `impact` of the quote (the rival may already have pushed the price below base);
+        preferred hours unless the shed is filling; fertilizer only at a decent price; full liquidation at
+        the end of the season."""
+        h = self.hour
         pressure = self.shed_used / SHED_CAP
         final = self.step >= (DAYS - 1) * TPD + 8
-        if not final and h not in self.p["sell_hours"] and pressure < 0.6:
+        if not final and h not in self.p["sell_hours"] and pressure < 0.4:
             return []
+        impact = 0.15 if pressure < 0.6 else 0.3 if pressure < 0.85 else 0.6
         out = []
         inv = dict(self.minv)
         for item, (base, *_rest) in MARKET_PARAMS.items():
             stock = self.shed.get(item, 0)
             if item == "WHEAT" and not final:
-                stock -= 2 * n_an
+                stock -= 3 * n_an                                  # never sell the feed we would buy back
             if stock <= 0:
                 continue
+            p0 = self.prices.get(item, base)
             if final:
-                ratio = 0.0 if self.step >= DAYS * TPD - 4 else 0.5
+                floor = 0 if self.step >= DAYS * TPD - 4 else 0.5 * p0
             elif item == "FERTILIZER":
-                ratio = self.p["fert_min_price"] / base
+                floor = max(self.p["fert_min_price"] * (1 - pressure), (1 - impact) * p0)
             else:
-                ratio = self.p["sell_ratio"] - (0.3 if pressure > 0.8 else 0.15 if pressure > 0.6 else 0.0)
-            q = sellable(item, inv.get(item, I0), stock, ratio * base) if ratio > 0 else stock
+                floor = (1 - impact) * p0
+            q = sellable(item, inv.get(item, I0), stock, floor) if floor > 0 else stock
             if q > 0:
                 out.append(["SELL", item, int(q)])
                 inv[item] = inv.get(item, I0) + int(q)
