@@ -8,8 +8,8 @@ variant B from step 0. Opponent: cha22. Reports money difference vs the unmodifi
 
 CAVEAT (found 2026-09-25): shops are NOT a function of the seed alone. The end-of-day RNG draws one number per
 empty tile of both farms (weed spawning) before drawing the next shop, so the shop sequence depends on both
-players' farm states.  (PASS play) matched the real first two shops in 0/6 cha22 games, so the
--30.6k / -37.4k results below were not actually shop-matched. Match on the shops observed in each replay and
+players' farm states. `shops_of` (PASS play) matched the real first two shops in 0/6 cha22 games, so the
+-30.6k / -37.4k results were not actually shop-matched. Match on the shops observed in each replay and
 in the live game at step 145 instead.
 """
 import collections
