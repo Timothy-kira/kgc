@@ -9,6 +9,7 @@ Per game step:
 Kaggle runtime: torch 2.6 CPU, 2 threads; actTimeout 1 s per step, runTimeout 1200 s per game.
 """
 import json
+import os
 import time
 
 import numpy as np
@@ -34,8 +35,10 @@ def load_clm(weights, args_json):
 
 
 class CLMAgent:
-    def __init__(self, net, temperature=0.0, time_budget=0.85, seed=None):
+    def __init__(self, net, temperature=0.0, time_budget=0.85, seed=None, hier=None):
         self.net = net
+        # hierarchical greedy decoding: op -> item -> quantity by marginal probability (see _pick)
+        self.hier = bool(int(os.environ.get("CLM_HIER", "0"))) if hier is None else hier
         self.temperature = temperature
         self.time_budget = time_budget
         self.gen = torch.Generator().manual_seed(seed) if seed is not None else None
@@ -46,6 +49,8 @@ class CLMAgent:
             self.slot_emb = net.embed(torch.tensor(SLOT_IDS))
             self.obs_ids = torch.tensor([OBS_IDS[t] for t in TYPE_OF_SLOT])
             self.act_emb = net.embed(torch.tensor([ACT_ID]))
+        self.desc_u = torch.as_tensor(np.asarray(net.unit_desc.cpu()), dtype=torch.long)
+        self.desc_m = torch.as_tensor(np.asarray(net.market_desc.cpu()), dtype=torch.long)
         self.reset()
 
     def reset(self):
@@ -100,13 +105,13 @@ class CLMAgent:
                     lg = scale * (self.zm @ zs)
                     if mask is not None:
                         lg = lg.masked_fill(~torch.from_numpy(mask), -1e9)
-                    c = self._pick(lg)
+                    c = self._pick(lg, self.desc_m)
                 enc = self.enc_m[c]
             else:
                 if late:
                     c = UNIT_NONE
                 else:
-                    c = self._pick(scale * (self.zu @ zs))
+                    c = self._pick(scale * (self.zu @ zs), self.desc_u)
                 enc = self.enc_u[c]
             plan.feed(slot, c)
             decisions.append((slot, c))
@@ -115,7 +120,18 @@ class CLMAgent:
         self.trace.append(decisions)
         return decisions_to_action(decisions)
 
-    def _pick(self, lg):
+    def _pick(self, lg, desc=None):
         if self.temperature > 0:
             return int(torch.multinomial(torch.softmax(lg / self.temperature, -1), 1, generator=self.gen))
-        return int(lg.argmax())
+        if not self.hier or desc is None:
+            return int(lg.argmax())
+        # Plain argmax over op x item x qty favours a candidate whose mass is concentrated on one exact form (a
+        # fixed filler order) over an intent whose mass is split across many quantities/items. Choose the op by
+        # marginal probability, then the item within it, then the best candidate.
+        p = torch.softmax(lg.float(), -1)
+        sel = torch.ones_like(p, dtype=torch.bool)
+        for col in (1, 2):
+            ids = desc[:, col]
+            marg = torch.zeros(int(ids.max()) + 1).index_add_(0, ids[sel], p[sel])
+            sel &= ids == int(marg.argmax())
+        return int(torch.where(sel, p, torch.full_like(p, -1.0)).argmax())
