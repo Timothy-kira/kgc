@@ -245,17 +245,20 @@ def main():
         # deadline is checked on local clocks; a one-sided stop leaves the other rank blocked in a DDP collective
         b = next(it, None)
         stop = b is None or time.time() > deadline
+        elapsed = time.time() - t0
         if world > 1:
             import torch.distributed as dist
-            flag = torch.tensor([1.0 if stop else 0.0], device=device)
-            dist.all_reduce(flag, op=dist.ReduceOp.MAX)
-            stop = bool(flag.item() > 0)
+            flag = torch.tensor([1.0 if stop else 0.0, elapsed], device=device, dtype=torch.float64)
+            dist.all_reduce(flag, op=dist.ReduceOp.MAX)      # same stop decision and same clock on every rank
+            stop, elapsed = bool(flag[0].item() > 0), float(flag[1].item())
         if stop:
             break
         i += 1
         if i == 0:
             print("first batch", {k: tuple(v.shape) for k, v in b.items()}, flush=True)
-        prog = min(1.0, step / est_total)
+        # schedule progress = max(step-based, wall-clock-based): time-limited runs (many epochs, --max_hours) must
+        # still warm up and decay within the budget instead of staying in warm-up
+        prog = min(1.0, max(step / est_total, elapsed / (a.max_hours * 3600)))
         cur_lr = lr * (prog / 0.1 if prog < 0.1 else 0.5 * (1 + math.cos(math.pi * (prog - 0.1) / 0.9)) * 0.96 + 0.04)
         for g in opt.param_groups:
             g["lr"] = cur_lr
