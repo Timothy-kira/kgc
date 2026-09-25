@@ -103,6 +103,13 @@ def load_mix(db_dir, n=400):
     lost1 = ours1 & (e.reward_1.fillna(0) <= e.reward_0.fillna(0))
     L = e[lost0 | lost1].tail(n)
     pools["loss"] = _tape_rows(db, L, [1 if x else 0 for x in lost0[L.index]])
+    if os.environ.get("ROUTE_LOSS_DB"):                    # our own games crawled into a separate DB
+        db2 = ReplayDB(os.environ["ROUTE_LOSS_DB"])
+        e2 = db2.episodes().sort_values("episode_id")
+        l0 = e2.submission_id_0.isin(OUR_SUBS) & (e2.reward_0.fillna(0) <= e2.reward_1.fillna(0))
+        l1 = e2.submission_id_1.isin(OUR_SUBS) & (e2.reward_1.fillna(0) <= e2.reward_0.fillna(0))
+        L2 = e2[l0 | l1].tail(n)
+        pools["loss"] += _tape_rows(db2, L2, [1 if x else 0 for x in l0[L2.index]])
     s0, s1 = e.updated_score_0.fillna(0), e.updated_score_1.fillna(0)
     near = e[((s0 >= 2200) & (s0 <= 2600)) | ((s1 >= 2200) & (s1 <= 2600))].tail(n)
     pools["near"] = _tape_rows(db, near, [0 if 2200 <= a <= 2600 else 1 for a in near.updated_score_0.fillna(0)])
