@@ -105,6 +105,7 @@ class OppIndex:
 
     def attach(self, tr):
         key = (tr.get("episode_id", -1), tr.get("seat", -1))
+        self.last_key = key                     # evaluation helpers read the most recent trajectory id
         if key not in self.loc:
             return False
         fi, k = self.loc[key]
