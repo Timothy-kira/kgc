@@ -144,6 +144,8 @@ def main():
     ap.add_argument("--dagger_every", type=int, default=0,
                     help="phase 1: every N training steps, one batch of student games relabeled by shadow v4b (DAgger)")
     ap.add_argument("--dagger_games", type=int, default=48)
+    ap.add_argument("--dagger_temp", type=float, default=0.0,
+                    help="student sampling temperature in DAgger games (0 = greedy, the deployed policy's states)")
     ap.add_argument("--skip_first_eval", type=int, default=0, help="1: no eval before training (baseline known)")
     a = ap.parse_args()
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -269,7 +271,7 @@ def main():
                 net.eval()
                 with torch.no_grad():
                     dt = R.run_games(net, device, workers, [R.W["mix"].spec(rng.randrange(10 ** 8)) for _ in range(a.dagger_games)],
-                                     temperature=1.0, label=True, max_steps=a.max_steps or None)
+                                     temperature=a.dagger_temp, label=True, max_steps=a.max_steps or None)
                 dbuf.extend(t["dagger"] for t in dt)
                 emit("DAGGER", {"step": step, "t_h": round(t_h(), 2), "games": len(dt),
                                 "student_win": round(float(np.mean([t["win"] for t in dt])), 3),
