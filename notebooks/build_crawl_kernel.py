@@ -27,11 +27,16 @@ for rel, text in __FILES__.items():
     open(p, "w").write(text)
 sys.path.insert(0, SRC)
 best, best_n = None, -1
-for st in glob.glob("/kaggle/input/**/replay_db/state.json", recursive=True):
+for st in glob.glob("/kaggle/input/**/state.json", recursive=True):
+    if not os.path.isdir(os.path.join(os.path.dirname(st), "index")):
+        continue
     n = json.load(open(st)).get("n_downloaded", 0)
     if n > best_n:
         best, best_n = os.path.dirname(st), n
 print("resume source:", best, best_n, flush=True)
+if best is None:
+    subprocess.run("find /kaggle/input -maxdepth 4 | head -50", shell=True)
+    sys.exit("no resume DB under /kaggle/input")
 OUT = "/kaggle/working/replay_db"
 from data import crawl
 crawl.main(["--out", OUT, "--resume-from", best, "--min-score", "1500", "--max-hours", "__HOURS__", "--rounds", "1000",
