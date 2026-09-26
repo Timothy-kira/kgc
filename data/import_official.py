@@ -2,8 +2,10 @@
 
 python -m data.import_official <out_dir> <base_db> <json_glob> [procs=4] [verify_fraction=0.01] [manifest.csv]
 The official replays carry no submission ids / ratings, only team names: team_id comes from the base DB's
-index/teams.parquet and updated_score_k from that team's latest rating in the base DB (fallback: the day's
-median_avg_score from the episodes-index manifest). Episodes already in the base DB shards are skipped.
+index/teams.parquet. Ratings and create_time come from each daily dataset's manifest.csv (episode_id, create_time,
+avg_score, min_score): the two seats get min_score and 2*avg - min_score, the higher one to the team with the higher
+latest rating in the base DB (else seat 1). Fallbacks: team rating, then the day's median_avg_score from the
+episodes-index manifest. Episodes already in the base DB shards are skipped.
 Output: <out_dir>/shards/ep_off_<YYYYMMDD>_<NNN>.parquet (same EP_SCHEMA as data/crawl.py, so ReplayDB, seq and
 opponent-event extraction work unchanged on a merged shard list).
 """
@@ -31,6 +33,20 @@ def _day(path):
     return "".join(m.groups()) if m else "00000000"
 
 
+def _episode_meta(d):
+    """Per-dataset manifest.csv -> {episode_id: (create_time, min_score, max_score)} (cached per worker)."""
+    cache = G.setdefault("emeta", {})
+    if d not in cache:
+        cache[d] = {}
+        f = os.path.join(d, "manifest.csv")
+        if os.path.exists(f):
+            m = pd.read_csv(f)
+            if {"episode_id", "min_score", "avg_score"} <= set(m.columns):
+                for e, ct, lo, av in zip(m.episode_id, m.get("create_time", [None] * len(m)), m.min_score, m.avg_score):
+                    cache[d][int(e)] = (str(ct) if ct == ct else None, float(lo), float(2 * av - lo))
+    return cache[d]
+
+
 def _work(path):
     try:
         rep = json.load(open(path))
@@ -38,12 +54,19 @@ def _work(path):
         if eid in G["have"]:
             return path, None, "have"
         day = _day(path)
-        agents = []
-        for k, name in enumerate(rep["info"].get("TeamNames") or [None, None]):
-            tid = G["team_id"].get(name)
-            sc = G["team_score"].get(tid, G["day_score"].get(day))
-            agents.append({"index": k, "teamId": tid, "submissionId": None, "updatedScore": sc, "initialScore": None})
-        meta = {"id": eid, "createTime": f"{day[:4]}-{day[4:6]}-{day[6:]}T12:00:00Z", "agents": agents}
+        names = rep["info"].get("TeamNames") or [None, None]
+        tids = [G["team_id"].get(n) for n in names]
+        tsc = [G["team_score"].get(t) for t in tids]
+        scores = [ts if ts is not None else G["day_score"].get(day) for ts in tsc]
+        ctime = f"{day[:4]}-{day[4:6]}-{day[6:]}T12:00:00Z"
+        em = _episode_meta(os.path.dirname(path)).get(eid)
+        if em is not None:
+            ctime, lo, hi = em
+            strong0 = (tsc[0] or 0) > (tsc[1] or 0)
+            scores = [hi, lo] if strong0 else [lo, hi]
+        agents = [{"index": k, "teamId": tids[k], "submissionId": None, "updatedScore": scores[k], "initialScore": None}
+                  for k in (0, 1)]
+        meta = {"id": eid, "createTime": ctime, "agents": agents}
         row = compact_replay(rep, meta)
         if G["verify"] > 0 and random.random() < G["verify"]:
             from env.replay_check import check
@@ -74,8 +97,8 @@ def main():
                 ts[int(tid)] = float(sc)       # sorted by time: last write = latest rating
     G["team_score"] = ts
     G["day_score"] = {}
-    if manifest and os.path.exists(manifest):
-        m = pd.read_csv(manifest)
+    m = pd.read_csv(manifest) if manifest and os.path.exists(manifest) else None
+    if m is not None and {"date", "median_avg_score"} <= set(m.columns):
         G["day_score"] = {d.replace("-", ""): float(s) for d, s in zip(m.date, m.median_avg_score)}
     files = sorted(glob.glob(pattern, recursive=True))
     print(f"[official] files={len(files)} base_eps={len(have)} teams={len(ts)}", flush=True)

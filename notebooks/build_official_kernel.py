@@ -12,7 +12,8 @@ BODY = r'''
 import glob, json
 dbs = [os.path.dirname(p) for p in glob.glob("/kaggle/input/**/state.json", recursive=True)
        if os.path.isdir(os.path.join(os.path.dirname(p), "index"))]
-man = (glob.glob("/kaggle/input/**/manifest.csv", recursive=True) or [""])[0]
+man = (glob.glob("/kaggle/input/**/kaggriculture-episodes-index/**/manifest.csv", recursive=True)
+       or glob.glob("/kaggle/input/**/kaggriculture-episodes-index/manifest.csv", recursive=True) or [""])[0]
 print("DB", dbs, "manifest", man, flush=True)
 if not dbs:
     sys.exit("no replay DB under /kaggle/input")
