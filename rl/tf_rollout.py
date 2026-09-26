@@ -11,8 +11,11 @@ Trajectories are model/clm_batch.collate-ready: prod/glob/tiles/units, dec_slot/
 opp_tgt/opp_stock, win/diff/score (+ lp for sampled decisions).
 """
 import importlib
+import json
 import multiprocessing as mp
+import random
 import time
+import zlib
 
 import numpy as np
 import torch
@@ -25,28 +28,23 @@ from agent.tf_agent import EngramLive
 from env.fast_env import FarmEnv
 from model.opp_data import LAYER_D, LAYER_S
 from rl.clm_rollout import CLMBatchedPolicy
-from rl.opp_mix import OppMix, Tape1, v4b
+from rl.opp_mix import OppMix, SeatTape, Tape1, v4b
 
 K = importlib.import_module("kaggle_environments.envs.kaggriculture.kaggriculture")
 W = {}                                                   # worker globals: vocab, mix (set before forking)
 
 
-class Game:
-    """One game from our seat's view: env, opponent, tracker, live Engram state, recorded per-step data."""
+class View:
+    """One seat's view of a game: feature tracker, live Engram state, inferred opponent flows, hash rows."""
 
-    def __init__(self, spec, vocab, teacher=False):
-        kind, name, seed, seat, cfg, how = spec
-        self.kind, self.name, self.seat = kind, name, seat
-        self.env = FarmEnv(seed, cfg)
-        self.opp = OppMix.make(how)
-        self.teacher = v4b() if teacher else None
+    def __init__(self, seat, vocab):
+        self.seat = seat
         self.trk, self.live = Tracker(), EngramLive(vocab)
         self.prev_obs = self.prev_action = None
-        self.flow, self.shed = [], []
-        self.rows_s, self.rows_d = [], []
+        self.flow, self.rows_s, self.rows_d = [], [], []
         self.o = None
 
-    def _sync(self, o):
+    def sync(self, o):
         if self.prev_obs is not None:
             try:
                 fl = infer_flows(K, self.prev_obs, self.prev_action, o["market"]["inventory"])
@@ -56,9 +54,9 @@ class Game:
             self.live.push(int(self.prev_obs["step"]), fl, f, f["money"], o["market"]["inventory"]["WHEAT"])
             self.flow.append([int(fl.get(p, 0)) for p in PRODUCTS])
 
-    def observe(self):
-        o = self.env.obs(self.seat)
-        self._sync(o)
+    def observe(self, env):
+        o = env.obs(self.seat)
+        self.sync(o)
         self.o = o
         self.trk.update(o)
         P, G, _, _ = self.trk.features(None)
@@ -70,23 +68,56 @@ class Game:
         st["rows_s"], st["rows_d"] = rs, rd
         return st
 
-    def act(self, action):
-        env, seat = self.env, self.seat
-        tape = isinstance(self.opp, Tape1)                 # open-loop tapes only read obs["step"]: no copy
-        oa = self.opp(env.obs(1 - seat, copy_obs=not tape), env.config)
-        env.step(*((action, oa) if seat == 0 else (oa, action)))
+    def after(self, action):
         self.prev_obs, self.prev_action = self.o, action
+
+
+class Game:
+    """One game from our seat's view. The opponent is a program / tape (rl/opp_mix.py), a given callable
+    (how = ("callable", f)), or - self-play, how = ("self", snapshot) - a second View decoded on the GPU."""
+
+    def __init__(self, spec, vocab, teacher=None):
+        kind, name, seed, seat, cfg, how = spec
+        self.kind, self.name, self.seat = kind, name, seat
+        self.env = FarmEnv(seed, cfg)
+        self.me = View(seat, vocab)
+        self.opp_view = View(1 - seat, vocab) if how[0] == "self" else None
+        self.opp = None if self.opp_view is not None else (how[1] if how[0] == "callable" else OppMix.make(how))
+        self.teacher = teacher
+        self.shed = []
+
+    @property
+    def o(self):
+        return self.me.o
+
+    def observe(self):
+        st = self.me.observe(self.env)
+        if self.opp_view is not None:
+            st["opp_st"] = self.opp_view.observe(self.env)
+        return st
+
+    def act(self, action, opp_action=None):
+        env, seat = self.env, self.seat
+        if self.opp_view is not None:
+            oa = opp_action
+            self.opp_view.after(oa)
+        else:
+            tape = isinstance(self.opp, Tape1)             # open-loop tapes only read obs["step"]: no copy
+            oa = self.opp(env.obs(1 - seat, copy_obs=not tape), env.config)
+        env.step(*((action, oa) if seat == 0 else (oa, action)))
+        self.me.after(action)
         sh = env.obs(1 - seat, copy_obs=False)["private"]["shed"]
         self.shed.append([int(sh.get(p, 0)) for p in PRODUCTS])
         if env.done:
-            self._sync(env.obs(seat))                     # flows of the final transition (opponent targets)
+            self.me.sync(env.obs(seat))                    # flows of the final transition (opponent targets)
         return env.done, env.money[seat], env.money[1 - seat]
 
     def targets(self, T):
-        flow = np.array(self.flow[:T] + [[0] * len(PRODUCTS)] * max(0, T - len(self.flow)), np.int64)
+        m = self.me
+        flow = np.array(m.flow[:T] + [[0] * len(PRODUCTS)] * max(0, T - len(m.flow)), np.int64)
         shed = np.array(self.shed[:T], np.float32).reshape(-1, len(PRODUCTS))
         before = np.concatenate([np.zeros((1, len(PRODUCTS)), np.float32), shed])[:T]
-        return dict(eng_s=np.stack(self.rows_s[:T]), eng_d=np.stack(self.rows_d[:T]), opp_tgt=opp_targets(flow),
+        return dict(eng_s=np.stack(m.rows_s[:T]), eng_d=np.stack(m.rows_d[:T]), opp_tgt=opp_targets(flow),
                     opp_stock=np.log1p(before))
 
 
@@ -108,10 +139,19 @@ def outcome(mm, mo):
 
 
 def teacher_game(j):
-    """job -> teacher (v4b) trajectory from our seat vs W["mix"].spec(j); decisions = the teacher's action."""
-    spec = W["mix"].spec(j)
+    """job -> distillation trajectory from our seat: with prob W["demo_frac"] a replayed high-rated winner
+    (rl/opp_mix.export_v2 "demo": both seats replayed, decisions = the winner's recorded action), otherwise v4b vs
+    W["mix"].spec(j) (decisions = v4b's action)."""
     torch.set_num_threads(1)
-    g = Game(spec, W["vocab"], teacher=True)
+    rng = random.Random(j)
+    demo = W.get("demo")
+    if demo and rng.random() < W.get("demo_frac", 0.0):
+        eid, seed, cfg, blob, w = demo[j % len(demo)]
+        acts = json.loads(zlib.decompress(blob))
+        spec = ("demo", f"demo:{eid}", seed, w, cfg, ("callable", SeatTape(acts, 1 - w)))
+        g = Game(spec, W["vocab"], teacher=SeatTape(acts, w))
+    else:
+        g = Game(W["mix"].spec(j), W["vocab"], teacher=v4b())
     steps, decs = [], []
     done, mm, mo = False, 0, 0
     while not done:
@@ -140,7 +180,7 @@ def _worker(conn, vocab):
         elif cmd == "obs":
             conn.send({gid: games[gid].observe() for gid in msg[1]})
         elif cmd == "act":
-            conn.send({gid: games[gid].act(a) for gid, a in msg[1].items()})
+            conn.send({gid: games[gid].act(*a) for gid, a in msg[1].items()})
         elif cmd == "targets":
             conn.send({gid: games[gid].targets(T) for gid, T in msg[1].items()})
         elif cmd == "close":
@@ -178,35 +218,54 @@ class Workers:
             c.send(("exit",))
 
 
-def run_games(net, device, workers, specs, temperature=1.0, max_steps=None):
-    """specs: list of opponent specs (rl/opp_mix.OppMix.spec) -> student trajectories (+ per-decision lp)."""
+def run_games(net, device, workers, specs, temperature=1.0, max_steps=None, opp_net=None):
+    """specs: list of opponent specs (rl/opp_mix.OppMix.spec, or how = ("self", tag) for self-play against
+    `opp_net`, decoded greedily in its own batch) -> student trajectories (+ per-decision lp)."""
     B = len(specs)
     workers.call("new", {g: s for g, s in enumerate(specs)})
     caches = net.stack_caches([net.init_cache(1, device) for _ in range(B)])
     pos = torch.zeros(B, dtype=torch.long, device=device)
     pol = CLMBatchedPolicy(net, device, temperature)
+    sp = [g for g, s in enumerate(specs) if s[5][0] == "self"]
+    if sp:
+        caches_o = opp_net.stack_caches([opp_net.init_cache(1, device) for _ in sp])
+        pos_o = torch.zeros(len(sp), dtype=torch.long, device=device)
+        pol_o = CLMBatchedPolicy(opp_net, device, 0.0)
     steps = [[] for _ in range(B)]
     decs = [[] for _ in range(B)]
     lps = [[] for _ in range(B)]
     alive, result, n, t0 = list(range(B)), {}, 0, time.time()
+
+    def rows(m, sts):
+        rs = torch.from_numpy(np.stack([s["rows_s"] for s in sts])).to(device).unsqueeze(1)
+        rd = torch.from_numpy(np.stack([s["rows_d"] for s in sts])).to(device).unsqueeze(1)
+        m.engram_ids, m.engram_mask = {LAYER_S: rs, LAYER_D: rd}, None
+
     while alive:
         sts = workers.call("obs", {g: None for g in alive})
         full = [sts.get(g, sts[alive[0]]) for g in range(B)]
-        rs = torch.from_numpy(np.stack([s["rows_s"] for s in full])).to(device).unsqueeze(1)
-        rd = torch.from_numpy(np.stack([s["rows_d"] for s in full])).to(device).unsqueeze(1)
-        net.engram_ids, net.engram_mask = {LAYER_S: rs, LAYER_D: rd}, None
+        rows(net, full)
         acts, dd, ll = pol.act(full, caches, pos)
+        opp_act = {}
+        live_sp = [g for g in sp if g in sts]
+        if live_sp:
+            fo = [sts[g]["opp_st"] if g in sts else sts[live_sp[0]]["opp_st"] for g in sp]
+            rows(opp_net, fo)
+            ao, _, _ = pol_o.act(fo, caches_o, pos_o)
+            opp_act = {g: ao[i] for i, g in enumerate(sp)}
         for g in alive:
             steps[g].append({k: sts[g][k] for k in ("prod", "glob", "tiles", "units")})
             decs[g].append(dd[g])
             lps[g] += ll[g]
-        res = workers.call("act", {g: acts[g] for g in alive})
+        res = workers.call("act", {g: (acts[g], opp_act.get(g)) for g in alive})
         for g, (done, mm, mo) in res.items():
             if done or (max_steps and n + 1 >= max_steps):
                 result[g] = (mm, mo)
         alive = [g for g in alive if g not in result]
         n += 1
     net.engram_ids = None
+    if sp:
+        opp_net.engram_ids = None
     tg = workers.call("targets", {g: len(steps[g]) for g in range(B)})
     workers.call("close", {g: None for g in range(B)})
     trajs = []

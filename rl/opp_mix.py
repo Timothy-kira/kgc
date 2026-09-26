@@ -33,6 +33,13 @@ class Tape1:
         return copy.deepcopy(self.acts[t]) if t < len(self.acts) else PASS
 
 
+class SeatTape(Tape1):
+    """One seat of a full recorded episode (list of [a0, a1] per step)."""
+
+    def __init__(self, acts, k):
+        self.acts = [a[k] for a in acts]
+
+
 def v4b():
     m = load_module("league/cha22.py")
     m._IMPL.chassis.cfg.update({"clamp_sells": True})
@@ -114,3 +121,68 @@ def load_pools(path, split="train"):
 if __name__ == "__main__":
     import sys
     print(export(sys.argv[1], sys.argv[2], loss_db=sys.argv[3] if len(sys.argv) > 3 else None))
+
+
+def export_v2(db_dir, out, caps=None, loss_db=None, demo_min=2600, eval_caps=None):
+    """B-track pools from the whole replay DB (docs/PLAN_RL.md section 8): every seat of every episode is a
+    candidate opponent tape, categorised by that player's rating (top >= 2700, near 2200-2700); loss = opponents
+    that beat our submissions; demo = full episodes whose winner is rated >= demo_min (both seats kept, replayed
+    from the winner's seat as offline imitation data). Most recent episodes first; every 5th episode id -> eval."""
+    import numpy as np
+    import pyarrow.parquet as pq
+    from data.replay_db import ReplayDB, _unz
+    caps = caps or {"near": 15000, "top": 8000, "loss": 100000, "demo": 6000}
+    eval_caps = eval_caps or {"near": 400, "top": 200, "loss": 1000}
+    OUR = {56553173, 56564007}
+    want = {}                                              # eid -> list of (split, cat, seat)
+    counts = {}
+    for root in [db_dir] + ([loss_db] if loss_db else []):
+        e = ReplayDB(root).episodes().sort_values("episode_id", ascending=False)
+        for r in e.itertuples():
+            eid = int(r.episode_id)
+            split = "eval" if eid % 5 == 0 else "train"
+            s = [r.updated_score_0 or 0, r.updated_score_1 or 0]
+            rw = [r.reward_0 or 0, r.reward_1 or 0]
+            subs = [r.submission_id_0, r.submission_id_1]
+            items = []
+            for k in (0, 1):
+                ours = subs[1 - k] in OUR
+                if ours and rw[k] >= rw[1 - k]:
+                    items.append((split, "loss", k))
+                elif not ours and subs[k] not in OUR:
+                    cat = "top" if s[k] >= 2700 else ("near" if s[k] >= 2200 else None)
+                    if cat:
+                        items.append((split, cat, k))
+            w = 0 if rw[0] > rw[1] else (1 if rw[1] > rw[0] else None)
+            if split == "train" and w is not None and s[w] >= demo_min and subs[w] not in OUR:
+                items.append((split, "demo", w))
+            keep = []
+            for split_, cat, k in items:
+                cap = (caps if split_ == "train" else eval_caps).get(cat, 0)
+                key = (split_, cat)
+                if counts.get(key, 0) < cap:
+                    counts[key] = counts.get(key, 0) + 1
+                    keep.append((split_, cat, k))
+            if keep:
+                want.setdefault((root, eid), []).extend(keep)
+    res = {"train": {}, "eval": {}}
+    by_root = {}
+    for (root, eid), v in want.items():
+        by_root.setdefault(root, {})[eid] = v
+    for root, eids in by_root.items():
+        for shard in ReplayDB(root).shards:
+            t = pq.read_table(shard, columns=["episode_id", "seed", "config", "actions_zstd"]).to_pylist()
+            for row in t:
+                eid = int(row["episode_id"])
+                if eid not in eids:
+                    continue
+                acts = _unz(row["actions_zstd"])
+                cfg = {kk: vv for kk, vv in json.loads(row["config"]).items() if vv is not None}
+                for split_, cat, k in eids.pop(eid):
+                    if cat == "demo":
+                        blob = zlib.compress(json.dumps(acts).encode(), 6)
+                    else:
+                        blob = zlib.compress(json.dumps([a[k] for a in acts]).encode(), 6)
+                    res[split_].setdefault(cat, []).append((eid, int(row["seed"]), cfg, blob, k))
+    pickle.dump(res, open(out, "wb"))
+    return {s: {c: len(v) for c, v in d.items()} for s, d in res.items()}

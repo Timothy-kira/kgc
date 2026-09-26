@@ -134,6 +134,13 @@ def main():
     ap.add_argument("--max_steps", type=int, default=0, help="truncate games (smoke tests)")
     ap.add_argument("--eval_n", type=int, default=0, help="limit the eval suite (smoke tests)")
     ap.add_argument("--log_sec", type=float, default=300.0)
+    ap.add_argument("--eval_pools", default=None, help="pools file for the eval suite (default --pools)")
+    ap.add_argument("--demo_frac", type=float, default=0.0, help="phase 1: share of replayed high-rated winners")
+    ap.add_argument("--grpo_mix", default="", help="e.g. near=0.25,loss=0.10,top=0.10,live=0.20,self=0.10")
+    ap.add_argument("--sp_frac", type=float, default=0.0, help="phase 2: share of self-play games (PFSP snapshots)")
+    ap.add_argument("--sp_min_win", type=float, default=0.2, help="self-play only once the last EVAL win >= this")
+    ap.add_argument("--snap_every", type=int, default=4, help="GRPO iterations between self-play snapshots")
+    ap.add_argument("--snap_keep", type=int, default=4)
     ap.add_argument("--skip_first_eval", type=int, default=0, help="1: no eval before training (baseline known)")
     a = ap.parse_args()
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -146,8 +153,17 @@ def main():
     os.makedirs(a.out, exist_ok=True)
     vocab = Vocab(a.vocab)
     R.W["vocab"] = vocab
-    R.W["mix"] = OppMix(load_pools(a.pools, "train"), MIX)
-    suite = OppMix(load_pools(a.pools, "eval"), seed_base=1_999_000_000).eval_specs()
+    train_pools = load_pools(a.pools, "train")
+    R.W["mix"] = OppMix(train_pools, MIX)
+    R.W["demo"], R.W["demo_frac"] = train_pools.get("demo"), a.demo_frac
+    suite = OppMix(load_pools(a.eval_pools or a.pools, "eval"), seed_base=1_999_000_000).eval_specs()
+    gmix = dict(MIX)
+    for kv in filter(None, a.grpo_mix.split(",")):
+        k, v = kv.split("=")
+        gmix[k] = float(v)
+    grpo_mix = OppMix(train_pools, gmix)
+    emit_mix = {"pools": {k: len(v) for k, v in train_pools.items()}, "demo_frac": a.demo_frac, "grpo_mix": grpo_mix.mix,
+                "sp_frac": a.sp_frac}
     if a.eval_n:
         suite = suite[::max(1, len(suite) // a.eval_n)][:a.eval_n]
     latest = os.path.join(a.out, "tf_latest.pt")
@@ -177,9 +193,11 @@ def main():
         with warm_pool(procs) as bp:
             base = {j: (kind, d) for j, kind, d in bp.imap_unordered(R.base_game, suite)}
         json.dump(base, open(base_p, "w"))
+    emit("MIX", emit_mix)
     emit("BASE", {"n": len(base), "win": round(float(np.mean([1.0 if d > 0 else 0.5 if d == 0 else 0.0 for _, d in base.values()])), 3)})
     workers = R.Workers(procs, vocab)
     best = state.get("best_key")
+    last_win = [state.get("last_win", 0.0)]
     last_eval = time.time() if a.skip_first_eval else -1e9
     rng = random.Random(int(time.time()))
     gen = {"pool": None, "it": None}
@@ -203,13 +221,14 @@ def main():
         rec = evaluate(net, device, workers, suite, base, a.h2h, t_h(), tag, a.max_steps or None)
         rec["eval"] = state["n_eval"]
         emit("EVAL", rec)
+        last_win[0] = rec["win"]
         key = [rec["dwin"], rec["ddiff"]]
         torch.save(net.state_dict(), latest)
         if best is None or key > best:
             best = key
             torch.save(net.state_dict(), os.path.join(a.out, "tf_best.pt"))
             json.dump(rec, open(os.path.join(a.out, "best.json"), "w"))
-        state.update(n_eval=state["n_eval"] + 1, best_key=best, elapsed_h=t_h())
+        state.update(n_eval=state["n_eval"] + 1, best_key=best, elapsed_h=t_h(), last_win=last_win[0])
         json.dump(state, open(state_p, "w"))
         last_eval = time.time()
         net.train()
@@ -283,17 +302,39 @@ def main():
     for g in opt.param_groups:
         g["lr"] = a.rl_lr * g["mult"]
     it = 0
+    snaps, sp_win, opp_net = [], {}, [None]
     while time.time() < deadline - 0.1 * 3600:
         maybe_eval("grpo")
         t0 = time.time()
+        if it % a.snap_every == 0:
+            snaps.append(({k: v.detach().to("cpu", copy=True) for k, v in net.state_dict().items()}, f"it{it}"))
+            snaps[:] = snaps[-a.snap_keep:]
+        sp_on = a.sp_frac > 0 and last_win[0] >= a.sp_min_win
+        si = None
+        if sp_on:
+            w = [(1.0 - sp_win.get(tag, 0.5)) ** 2 + 0.05 for _, tag in snaps]
+            si = rng.choices(range(len(snaps)), weights=w)[0]
+            if opp_net[0] is None:
+                opp_net[0], _ = load_net(a.ckpt, ref_path if os.path.exists(ref_path) else None, device)
+                opp_net[0].eval()
+            opp_net[0].load_state_dict(snaps[si][0])
         specs, gid = [], []
         for k in range(a.tasks):
-            s = R.W["mix"].spec(rng.randrange(10 ** 8))
+            j = rng.randrange(10 ** 8)
+            if sp_on and rng.random() < a.sp_frac:
+                s = ("sp", snaps[si][1], 30000 + j, j % 2, None, ("self", snaps[si][1]))
+            else:
+                s = grpo_mix.spec(j)
             specs += [s] * a.group
             gid += [k] * a.group
         net.eval()
         with torch.no_grad():
-            trajs = R.run_games(net, device, workers, specs, temperature=1.0, max_steps=a.max_steps or None)
+            trajs = R.run_games(net, device, workers, specs, temperature=1.0, max_steps=a.max_steps or None,
+                                opp_net=opp_net[0] if sp_on else None)
+        for t in trajs:
+            if t["kind"] == "sp":
+                tag = t["opponent"]
+                sp_win[tag] = 0.9 * sp_win.get(tag, 0.5) + 0.1 * t["win"]
         r = np.array([reward_of(t) for t in trajs])
         adv = np.zeros(len(trajs))
         kept = 0
@@ -342,7 +383,9 @@ def main():
                       "money": round(float(np.mean([t["money_me"] for t in trajs]))),
                       "mean_r": round(float(r.mean()), 4), "sec": round(time.time() - t0),
                       **{k: round(float(np.mean(v)), 5) for k, v in st.items()},
-                      "win_by_kind": {k: round(float(np.mean(v)), 3) for k, v in by.items()}})
+                      "win_by_kind": {k: round(float(np.mean(v)), 3) for k, v in by.items()},
+                      "sp": {"on": sp_on, "snap": snaps[si][1] if si is not None else None,
+                             "snap_win": {k: round(v, 3) for k, v in sp_win.items()}}})
         torch.save(net.state_dict(), latest)
         state["elapsed_h"] = t_h()
         json.dump(state, open(state_p, "w"))
