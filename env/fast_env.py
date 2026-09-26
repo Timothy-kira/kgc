@@ -7,6 +7,7 @@ online judge; `env/replay_check.py` verifies this against downloaded replays.
 """
 import copy
 import importlib
+import pickle
 
 from kaggle_environments.utils import Struct
 
@@ -56,7 +57,8 @@ class FarmEnv:
             "day": o0.day, "hour": o0.hour, "farms": o0.farms, "market": o0.market,
             "town": o0.town, "private": oi.private,
         }
-        return copy.deepcopy(o) if copy_obs else o
+        # pickle round trip = deepcopy for this plain data (dict/list/int/str), ~5x faster
+        return pickle.loads(pickle.dumps(o, pickle.HIGHEST_PROTOCOL)) if copy_obs else o
 
     @property
     def money(self):
