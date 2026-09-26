@@ -157,7 +157,8 @@ EP_SCHEMA = pa.schema([
 # --------------------------------------------------------------------------- crawler
 class Crawler:
     def __init__(self, out_dir, min_score, max_hours, workers, list_workers, shard_size, max_episodes,
-                 verify_fraction):
+                 verify_fraction, part=(0, 1)):
+        self.part = part                 # (k, n): this worker lists submissions / downloads episodes with id % n == k
         self.out = out_dir
         self.min_score = min_score
         self.deadline = time.time() + max_hours * 3600
@@ -169,6 +170,10 @@ class Crawler:
         os.makedirs(os.path.join(out_dir, "index"), exist_ok=True)
         self.lock = threading.Lock()
         self._load()
+
+    def mine(self, x):
+        k, n = self.part
+        return int(x) % n == k
 
     # ---- persistence
     def _load(self):
@@ -213,7 +218,9 @@ class Crawler:
     def _flush_buffer(self, force=False):
         if not self.buffer or (len(self.buffer) < self.shard_size and not force):
             return
-        path = os.path.join(self.out, "shards", f"ep_{self.shard_no:05d}.parquet")
+        k, n = self.part                 # parallel crawlers: distinct shard names (merge = copy both shard dirs)
+        name = f"ep_{self.shard_no:05d}.parquet" if n == 1 else f"ep_{self.shard_no:05d}_p{k}.parquet"
+        path = os.path.join(self.out, "shards", name)
         _atomic_write_table(path, pa.Table.from_pylist(self.buffer, schema=EP_SCHEMA))
         self.shard_no += 1
         self.buffer = []
@@ -254,7 +261,8 @@ class Crawler:
         with cf.ThreadPoolExecutor(self.list_workers) as ex:
             while n < max_lists and time.time() < self.deadline:
                 with self.lock:
-                    batch = sorted(self.frontier.items(), key=lambda kv: -kv[1])[: self.list_workers * 2]
+                    batch = sorted(((s_, v) for s_, v in self.frontier.items() if self.mine(s_)),
+                                   key=lambda kv: -kv[1])[: self.list_workers * 2]
                 if not batch:
                     break
                 futs = {ex.submit(list_episodes, s): s for s, _ in batch}
@@ -291,7 +299,7 @@ class Crawler:
                     if sid is not None and sc >= self.min_score:
                         best[sid] = max(best.get(sid, 0), sc)
             for sid, sc in best.items():
-                if now - self.sub_listed_at.get(sid, 0) > min_age_hours * 3600:
+                if self.mine(sid) and now - self.sub_listed_at.get(sid, 0) > min_age_hours * 3600:
                     self.sub_listed_at.pop(sid, None)
                     self.frontier[sid] = max(self.frontier.get(sid, 0), sc)
 
@@ -299,7 +307,7 @@ class Crawler:
     def _pending(self):
         with self.lock:
             cands = [m for eid, m in self.index.items()
-                     if eid not in self.done and eid not in self.failed
+                     if self.mine(eid) and eid not in self.done and eid not in self.failed
                      and min(m["score_0"], m["score_1"]) >= self.min_score]
         cands.sort(key=lambda m: -min(m["score_0"], m["score_1"]))  # strongest games first
         return cands
@@ -373,14 +381,16 @@ def main(argv=None):
     ap.add_argument("--shard-size", type=int, default=250)
     ap.add_argument("--verify-fraction", type=float, default=0.0)
     ap.add_argument("--rounds", type=int, default=3, help="discover/download alternations")
+    ap.add_argument("--part", default="0/1", help="k/n: parallel crawlers split submissions and episodes by id % n")
     a = ap.parse_args(argv)
 
     if a.resume_from and os.path.isdir(a.resume_from) and not os.path.exists(os.path.join(a.out, "state.json")):
         print(f"[resume] copying {a.resume_from} -> {a.out}", flush=True)
         shutil.copytree(a.resume_from, a.out, dirs_exist_ok=True)
 
+    k, n = (int(x) for x in a.part.split("/"))
     c = Crawler(a.out, a.min_score, a.max_hours, a.workers, a.list_workers, a.shard_size, a.max_episodes,
-                a.verify_fraction)
+                a.verify_fraction, part=(k, n))
     c.add_seeds([s for s in a.seed_subs.split(",") if s.strip()])
     c.refresh_listings()
     for r in range(a.rounds):
