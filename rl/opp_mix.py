@@ -1,0 +1,116 @@
+"""Opponent mix shared by both RL tracks (docs/PLAN_RL.md, section 4).
+
+Categories: near (ladder opponents rated 2200-2600, replayed open-loop from their tape: the market is the only
+channel between players, so a tape is an exact opponent), loss (opponents that beat our submissions, same seed),
+top (2700+), live (league agents that react to prices, incl. cha22) and self (v4b = cha22 + clamp_sells, the
+exact mirror of our base). Tapes are exported once (`export`) into a small pickle with a held-out split by
+episode id (every 5th episode -> eval), so kernels do not need the 1.7 GB replay DB.
+"""
+import copy
+import json
+import os
+import pickle
+import zlib
+
+from agent.loader import call_adapter, entry_name, load_agent, load_module
+
+LIVE = ["league/cha22.py", "league/metav4.py", "league/v48.py", "league/farm2945.py",
+        "league/pub/hakfield/main.py", "league/pub/tetsutani_ms/main.py", "league/pub/pilkwang_sep/main.py",
+        "league/pub/prvsiyan_frontier/main.py", "league/pub/dmitrii_2c1s/main.py", "league/pub/flexonafft_mpr/main.py"]
+MIX = {"near": 0.30, "loss": 0.15, "top": 0.10, "live": 0.25, "self": 0.20}
+EVAL_COUNTS = {"near": 18, "loss": 9, "top": 6, "live": 15, "self": 12}
+PASS = {"farmer": ["PASS"], "hands": [], "market": []}
+
+
+class Tape1:
+    """One seat's recorded actions, replayed open-loop."""
+
+    def __init__(self, blob):
+        self.acts = json.loads(zlib.decompress(blob))
+
+    def __call__(self, obs, cfg=None):
+        t = obs["step"]
+        return copy.deepcopy(self.acts[t]) if t < len(self.acts) else PASS
+
+
+def v4b():
+    m = load_module("league/cha22.py")
+    m._IMPL.chassis.cfg.update({"clamp_sells": True})
+    return call_adapter(getattr(m, entry_name(m)))
+
+
+def export(db_dir, out, n_near=800, n_top=400, loss_db=None):
+    import tools.route_data as RD
+    if loss_db:
+        os.environ["ROUTE_LOSS_DB"] = loss_db
+    pools = RD.load_mix(db_dir, n=n_near)
+    pools["top"] = pools["top"][-n_top:]
+    res = {"train": {}, "eval": {}}
+    for cat, rows in pools.items():
+        for eid, seed, cfg, acts, k in rows:
+            blob = zlib.compress(json.dumps([a[k] for a in acts]).encode(), 6)
+            cfg = {kk: v for kk, v in cfg.items() if v is not None}
+            res["eval" if eid % 5 == 0 else "train"].setdefault(cat, []).append((eid, seed, cfg, blob, k))
+    pickle.dump(res, open(out, "wb"))
+    return {s: {c: len(v) for c, v in d.items()} for s, d in res.items()}
+
+
+class OppMix:
+    """Deterministic job id -> opponent spec over the category mix."""
+
+    def __init__(self, pools, mix=MIX, seed_base=20000):
+        self.pools = pools
+        w = [(k, v) for k, v in mix.items() if v > 0 and (k in ("live", "self") or pools.get(k))]
+        tot = sum(v for _, v in w)
+        self.mix = [(k, v / tot) for k, v in w]
+        self.seed_base = seed_base
+
+    def category(self, j):
+        u = ((j * 2654435761) % 2 ** 32) / 2 ** 32
+        acc = 0.0
+        for cat, wt in self.mix:
+            acc += wt
+            if u < acc:
+                return cat
+        return self.mix[-1][0]
+
+    def spec(self, j, cat=None):
+        """-> (kind, name, seed, seat, cfg, how) with how = ("tape", blob) | ("agent", path) | ("v4b",)."""
+        cat = cat or self.category(j)
+        if cat in ("live", "self"):
+            seed, seat = self.seed_base + j, j % 2
+            if cat == "self":
+                return "self", "v4b", seed, seat, None, ("v4b",)
+            path = LIVE[(j // 2) % len(LIVE)]
+            return "live", path, seed, seat, None, ("agent", path)
+        pool = self.pools[cat]
+        eid, seed, cfg, blob, k = pool[(j * 7919) % len(pool)]
+        return cat, f"{cat}:{eid}", seed, 1 - k, cfg, ("tape", blob)
+
+    @staticmethod
+    def make(how):
+        if how[0] == "tape":
+            return Tape1(how[1])
+        if how[0] == "v4b":
+            return v4b()
+        return load_agent(how[1])
+
+    def eval_specs(self, counts=EVAL_COUNTS, start=10 ** 6):
+        """Stratified, fixed evaluation jobs (use with the held-out pools)."""
+        out = []
+        for cat, n in counts.items():
+            if cat not in ("live", "self") and not self.pools.get(cat):
+                continue
+            for i in range(n):
+                j = start + len(out)
+                out.append((j, self.spec(j, cat)))
+        return out
+
+
+def load_pools(path, split="train"):
+    return pickle.load(open(path, "rb"))[split]
+
+
+if __name__ == "__main__":
+    import sys
+    print(export(sys.argv[1], sys.argv[2], loss_db=sys.argv[3] if len(sys.argv) > 3 else None))

@@ -1,8 +1,10 @@
 """v5 agent: v4b base (cha22 + clamp_sells) with a learned residual on sell decisions (docs/PLAN_RL.md).
 
 Every 6 hours the policy picks, for each controlled product, 0 = follow cha22, 1 = hold (drop that product's SELL
-orders for the next 6 steps), 2 = dump (sell the whole shed stock now). Guards: money < 3000 -> follow (cha22's
-tape funds its purchases from its sales); shed + carried > 85 -> no hold; fertilizer keeps a reserve of 10.
+orders for the next 6 steps), 2 = dump (sell half of the shed stock now, on top of cha22's orders). Guards:
+money < 3000 -> no hold (cha22's tape funds its purchases from its sales; selling more is always allowed);
+shed + carried > 85 -> no hold; fertilizer keeps a reserve of 10. The headroom probe (tools/v5_headroom.py)
+found whole-stock dumps at -1.5k on average with 25-50% positive cases, hence half.
 
 Features (FEAT_DIM per decision): global state, per controlled product (price, market inventory deviation, our
 stock, cha22's planned sells over the next 6/24 steps, opponent's inferred flows over 6/24/72 steps, town drain,
@@ -108,13 +110,13 @@ class V5Agent:
              max(-3.0, min(3.0, (farm["money"] - opp["money"]) / 50000)), shed_tot / 100, carried / 50,
              float(farm["money"] < MIN_MONEY)]
         for p in CTRL:
-            price = K.market_price(p, inv[p]) if K is not None else BASE[p]
+            price = obs["market"].get("prices", {}).get(p) or BASE[p]
             fl = list(self.flows[p])
             f += [price / BASE[p], max(-3.0, min(3.0, (inv[p] - 10000) / T_SCALE[p])), shed.get(p, 0) / 50,
                   self._planned(p, step, 6) / 20, self._planned(p, step, 24) / 50,
                   sum(fl[-6:]) / 10, sum(fl[-24:]) / 30, sum(fl) / 60, dr[p] / 12, float(self.hold_until[p] > step)]
         for p in CTX:
-            price = K.market_price(p, inv[p]) if K is not None else BASE[p]
+            price = obs["market"].get("prices", {}).get(p) or BASE[p]
             f += [price / BASE[p], max(-3.0, min(3.0, (inv[p] - 10000) / T_SCALE[p])), shed.get(p, 0) / 50]
         return np.array(f, np.float32)
 
@@ -144,17 +146,18 @@ class V5Agent:
         """[5, 3] bool: which actions each head may take (guards)."""
         me = int(obs["player"])
         a = np.ones((len(CTRL), N_ACT), bool)
-        if obs["farms"][me]["money"] < MIN_MONEY:
-            a[:, 1:] = False
-            return a
         shed = obs["private"]["shed"]
         carried = sum(sum(i.values()) for i in obs["private"].get("inventories") or [])
-        if sum(shed.values()) + carried > SHED_HOLD_MAX:
+        if obs["farms"][me]["money"] < MIN_MONEY or sum(shed.values()) + carried > SHED_HOLD_MAX:
             a[:, HOLD] = False
         for k, p in enumerate(CTRL):
-            if shed.get(p, 0) - (FERT_RESERVE if p == "FERTILIZER" else 0) <= 0:
+            if self._dump_qty(p, shed) <= 0:
                 a[k, DUMP] = False
         return a
+
+    @staticmethod
+    def _dump_qty(p, shed):
+        return (shed.get(p, 0) - (FERT_RESERVE if p == "FERTILIZER" else 0)) // 2
 
     # ------------------------------------------------------------------ acting
     def decide(self, obs):
@@ -186,25 +189,21 @@ class V5Agent:
         carried = sum(sum(i.values()) for i in obs["private"].get("inventories") or [])
         if sum(shed.values()) + carried > SHED_HOLD_MAX + 5:          # shed filling up: release holds
             self.hold_until = {p: -1 for p in CTRL}
-        out, done = [], set()
+        out, rest = [], []
+        for p in CTRL:                                   # dump orders first (the engine keeps 10 per turn)
+            if p in dump:
+                q = self._dump_qty(p, shed)
+                if q > 0:
+                    out.append(["SELL", p, int(q)])
         for o in action.get("market") or []:
-            if isinstance(o, list) and len(o) >= 3 and o[0] == "SELL" and o[1] in CTRL:
-                p = o[1]
-                if self.hold_until[p] > step:
-                    continue
-                if p in dump:
-                    q = shed.get(p, 0) - (FERT_RESERVE if p == "FERTILIZER" else 0)
-                    if q > 0 and p not in done:
-                        out.append(["SELL", p, int(q)])
-                        done.add(p)
-                    continue
-            out.append(o)
-        for p in dump - done:
-            q = shed.get(p, 0) - (FERT_RESERVE if p == "FERTILIZER" else 0)
-            if q > 0:
-                out.append(["SELL", p, int(q)])
+            if isinstance(o, list) and len(o) >= 3 and o[0] == "SELL" and o[1] in CTRL and self.hold_until[o[1]] > step:
+                continue
+            rest.append(o)
+        if not out and len(rest) == len(action.get("market") or []):
+            return action                                # nothing changed: exactly the base action
+        out += rest
         action = dict(action)
-        action["market"] = out[:10]
+        action["market"] = out
         return action
 
     def __call__(self, obs, cfg=None):
