@@ -85,13 +85,20 @@ class Game:
         self.opp = None if self.opp_view is not None else (how[1] if how[0] == "callable" else OppMix.make(how))
         self.teacher = teacher
         self.shed = []
+        self.tdec = []                                     # shadow-teacher decisions on our visited states
 
     @property
     def o(self):
         return self.me.o
 
-    def observe(self):
+    def observe(self, label=False):
         st = self.me.observe(self.env)
+        if label and self.teacher is not None:
+            try:
+                ta = self.teacher(self.me.o, self.env.config)
+            except Exception:
+                ta = {"farmer": ["PASS"], "hands": [], "market": []}
+            self.tdec.append(action_to_decisions(ta, st["n_hands"]))
         if self.opp_view is not None:
             st["opp_st"] = self.opp_view.observe(self.env)
         return st
@@ -174,11 +181,13 @@ def _worker(conn, vocab):
         msg = conn.recv()
         cmd = msg[0]
         if cmd == "new":
-            for gid, spec in msg[1].items():
-                games[gid] = Game(spec, vocab)
+            for gid, (spec, label) in msg[1].items():
+                games[gid] = Game(spec, vocab, teacher=v4b() if label else None)
             conn.send({})
         elif cmd == "obs":
-            conn.send({gid: games[gid].observe() for gid in msg[1]})
+            conn.send({gid: games[gid].observe(label=games[gid].teacher is not None) for gid in msg[1]})
+        elif cmd == "tdec":
+            conn.send({gid: games[gid].tdec for gid in msg[1]})
         elif cmd == "act":
             conn.send({gid: games[gid].act(*a) for gid, a in msg[1].items()})
         elif cmd == "targets":
@@ -218,11 +227,11 @@ class Workers:
             c.send(("exit",))
 
 
-def run_games(net, device, workers, specs, temperature=1.0, max_steps=None, opp_net=None):
+def run_games(net, device, workers, specs, temperature=1.0, max_steps=None, opp_net=None, label=False):
     """specs: list of opponent specs (rl/opp_mix.OppMix.spec, or how = ("self", tag) for self-play against
     `opp_net`, decoded greedily in its own batch) -> student trajectories (+ per-decision lp)."""
     B = len(specs)
-    workers.call("new", {g: s for g, s in enumerate(specs)})
+    workers.call("new", {g: (s, label) for g, s in enumerate(specs)})
     caches = net.stack_caches([net.init_cache(1, device) for _ in range(B)])
     pos = torch.zeros(B, dtype=torch.long, device=device)
     pol = CLMBatchedPolicy(net, device, temperature)
@@ -267,11 +276,16 @@ def run_games(net, device, workers, specs, temperature=1.0, max_steps=None, opp_
     if sp:
         opp_net.engram_ids = None
     tg = workers.call("targets", {g: len(steps[g]) for g in range(B)})
+    td = workers.call("tdec", {g: None for g in range(B)}) if label else {}
     workers.call("close", {g: None for g in range(B)})
     trajs = []
     for g, spec in enumerate(specs):
         tr = pack(steps[g], decs[g], tg[g])
         tr.update(outcome(*result[g]), lp=np.array(lps[g], np.float32), kind=spec[0], opponent=spec[1])
+        if label:                                          # DAgger relabel: student's states, teacher's decisions
+            T = len(steps[g])
+            tr["dagger"] = pack(steps[g], td[g][:T], tg[g])
+            tr["dagger"].update(outcome(*result[g]), kind="dagger", opponent=spec[1])
         trajs.append(tr)
     print(f"[rollout] {B} games x {n} steps in {time.time() - t0:.0f}s", flush=True)
     return trajs

@@ -141,6 +141,9 @@ def main():
     ap.add_argument("--sp_min_win", type=float, default=0.2, help="self-play only once the last EVAL win >= this")
     ap.add_argument("--snap_every", type=int, default=4, help="GRPO iterations between self-play snapshots")
     ap.add_argument("--snap_keep", type=int, default=4)
+    ap.add_argument("--dagger_every", type=int, default=0,
+                    help="phase 1: every N training steps, one batch of student games relabeled by shadow v4b (DAgger)")
+    ap.add_argument("--dagger_games", type=int, default=48)
     ap.add_argument("--skip_first_eval", type=int, default=0, help="1: no eval before training (baseline known)")
     a = ap.parse_args()
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -238,6 +241,7 @@ def main():
     # ------------------------------------------------------------------ phase 1: distillation
     if state["phase"] == 1 and a.distill_hours > 0:
         buf = collections.deque(maxlen=a.buf)
+        dbuf = collections.deque(maxlen=a.buf)             # DAgger (on-policy) trajectories
         gen_start()
         coefs = {"value": 0.2, "mtp": 0.3, "index": 0.1, "bwd": 1.0, "policy": 1.0, "opp": 0.5}
         step, n_games, stats, t_log = 0, 0, collections.defaultdict(list), time.time()
@@ -259,7 +263,22 @@ def main():
                     break
             if len(buf) < 2 * a.batch:
                 continue
-            batch = [crop(buf[rng.randrange(len(buf))], a.crop, rng) for _ in range(a.batch)]
+            if a.dagger_every and step % a.dagger_every == 0:
+                running = gen["pool"] is not None
+                gen_stop()
+                net.eval()
+                with torch.no_grad():
+                    dt = R.run_games(net, device, workers, [R.W["mix"].spec(rng.randrange(10 ** 8)) for _ in range(a.dagger_games)],
+                                     temperature=1.0, label=True, max_steps=a.max_steps or None)
+                dbuf.extend(t["dagger"] for t in dt)
+                emit("DAGGER", {"step": step, "t_h": round(t_h(), 2), "games": len(dt),
+                                "student_win": round(float(np.mean([t["win"] for t in dt])), 3),
+                                "student_money": round(float(np.mean([t["money_me"] for t in dt]))), "dbuf": len(dbuf)})
+                net.train()
+                if running:
+                    gen_start()
+            src = [buf, dbuf] if dbuf else [buf]
+            batch = [crop((lambda B: B[rng.randrange(len(B))])(src[i % len(src)]), a.crop, rng) for i in range(a.batch)]
             b = collate(batch, device=device, loser_w=1.0, hist_drop=0.5)
             lr = a.lr * min(1.0, (step + 1) / 100)
             for g in opt.param_groups:
