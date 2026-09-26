@@ -53,8 +53,8 @@ class V5Agent:
     """Callable Kaggle agent. `policy_fn(inputs) -> (actions[5], logp)` decides at decision steps; `override`
     (a length-5 action list) replaces the policy for the next decision only (used by fork branches)."""
 
-    def __init__(self, vocab, policy_fn=None, cha22_path="league/cha22.py", settings=None):
-        self.m = load_module(cha22_path)
+    def __init__(self, vocab, policy_fn=None, cha22_path="league/cha22.py", settings=None, module=None):
+        self.m = module if module is not None else load_module(cha22_path)
         self.m._IMPL.chassis.cfg.update(BASE_SETTINGS if settings is None else settings)
         self.base = call_adapter(getattr(self.m, entry_name(self.m)))
         self.chassis = self.m._IMPL.chassis
