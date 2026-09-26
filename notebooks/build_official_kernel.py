@@ -10,6 +10,7 @@ from kernel_common import DEFAULT_FILES, build_kernel
 
 BODY = r'''
 import glob, json
+subprocess.run([sys.executable, "-m", "pip", "install", "-q", "kaggle-environments==1.32.7"], check=False)
 dbs = [os.path.dirname(p) for p in glob.glob("/kaggle/input/**/state.json", recursive=True)
        if os.path.isdir(os.path.join(os.path.dirname(p), "index"))]
 man = (glob.glob("/kaggle/input/**/kaggriculture-episodes-index/**/manifest.csv", recursive=True)

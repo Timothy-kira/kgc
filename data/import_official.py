@@ -5,7 +5,8 @@ The official replays carry no submission ids / ratings, only team names: team_id
 index/teams.parquet. Ratings and create_time come from each daily dataset's manifest.csv (episode_id, create_time,
 avg_score, min_score): the two seats get min_score and 2*avg - min_score, the higher one to the team with the higher
 latest rating in the base DB (else seat 1). Fallbacks: team rating, then the day's median_avg_score from the
-episodes-index manifest. Episodes already in the base DB shards are skipped.
+episodes-index manifest. Episodes already in the base DB shards, and replays of another kaggle_environments version than the installed one
+(they do not re-simulate), are skipped.
 Output: <out_dir>/shards/ep_off_<YYYYMMDD>_<NNN>.parquet (same EP_SCHEMA as data/crawl.py, so ReplayDB, seq and
 opponent-event extraction work unchanged on a merged shard list).
 """
@@ -50,6 +51,8 @@ def _episode_meta(d):
 def _work(path):
     try:
         rep = json.load(open(path))
+        if rep.get("module_version") != G["version"]:    # older engines do not re-simulate (diverge at step 1)
+            return path, None, "old_version"
         eid = int(rep["info"]["EpisodeId"])
         if eid in G["have"]:
             return path, None, "have"
@@ -82,6 +85,8 @@ def main():
     out, base, pattern = sys.argv[1:4]
     procs = int(sys.argv[4]) if len(sys.argv) > 4 else 4
     G["verify"] = float(sys.argv[5]) if len(sys.argv) > 5 else 0.01
+    import kaggle_environments
+    G["version"] = kaggle_environments.__version__
     manifest = sys.argv[6] if len(sys.argv) > 6 else None
     have = set()
     for s in glob.glob(os.path.join(base, "shards", "ep_*.parquet")):
