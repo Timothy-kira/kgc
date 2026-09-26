@@ -136,3 +136,34 @@
 - init_kernel: the engdata kernels.
 - extra args: `--opp_data /kaggle/input/**/opp/ep_*.npz --opp_vocab /kaggle/input/**/opp_vocab.npz --policy_w 0.3`.
 - **The vocabulary stays fixed**, which keeps the engram_rows shape and v5 compatibility; new codes map to UNK.
+
+## 10. Overnight plan, 09-26 20:00 UTC (user asleep; all decisions delegated)
+
+**User's instructions.**
+- No more crawling. Merge the official daily replays with our DB.
+- Update Engram on all replays.
+- Use the compute for RL.
+- At most one GPU kernel at a time: delete the old one before pushing a new one.
+- TPU is likely unavailable, so use CPU or GPU.
+
+**Data**
+- Crawl kernels deleted.
+- Official daily replays are imported with `data/import_official.py`, run in kernels `xishengfeng/kgc-official-1` (08-13 to 08-26) and `kgc-official-2` (08-27 to 09-09, plus 09-25).
+- Only kaggle-environments 1.32.7 replays are imported. Games from 1.32.2, 1.32.4 and 1.32.6 diverge at step 1 when re-simulated, so the days before ~08-20 do not count.
+- Ratings and create_time come from each daily manifest.
+- The shards are downloaded, merged into the local replay_db, and uploaded as a new version of `xishengfeng/kaggriculture-replay-db`.
+- Kernel `evelynyang02/kgc-engdata-2` then extracts only the new shards.
+
+**Engram**
+- Trained on evelynyang02 (GPU) with `notebooks/build_train_kernel.py`, stage engram, initialised from the 09-26 engram.pt.
+- Data: all engdata kernels.
+- The vocabulary stays fixed.
+
+**RL (A track)**
+- Pure-v4b samplers: `rl.v5_rl --sample_only`, 6 CPU kernels named `kgc-v5rl-s{a,b,f}` (main) and `s{c,d,e}` (evelynyang02), about 47 samples/min each, for 11.3 hours.
+- Every sample carries exact rollouts of every alternative action of one head under the v4b continuation, so samples from all kernels pool into Q^{v4b}(s, a) differences.
+- **One step of conservative policy improvement.** It is PPO-like but trust-region by construction: deviate only where the ensemble's LCB on the gain exceeds a margin.
+- Learner: `rl/v5_offline.py` on GPU. It fits bootstrap-ensemble advantage heads twice, once with fresh Engram tables and once initialised from the new engram.pt (`--eng_init`; the bucket is now 2^15 so the tables match).
+- It then picks (margin, c) by the realised decision value on held-out games.
+- Recheck with `tools.v5_recheck` on 313 games using the ladder-weighted rule, then `submit.pack_v5` (int8 tables, ~40 MB) and submit.
+- A second round samples with the promoted policy as the base.
