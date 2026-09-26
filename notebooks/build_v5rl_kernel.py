@@ -41,9 +41,10 @@ if __name__ == "__main__":
     kdir, owner = sys.argv[1:3]
     hours = sys.argv[3] if len(sys.argv) > 3 else "11.2"
     extra = sys.argv[4:]
+    suffix = os.environ.get("V5_SUFFIX", "")             # parallel replicas: kgc-v5rl-b, kgc-v5rl-c, ...
     os.makedirs(kdir, exist_ok=True)
     open(os.path.join(kdir, "script.py"), "w").write(SCRIPT.replace("__HOURS__", hours).replace("__EXTRA__", repr(extra)))
-    json.dump({"id": f"{owner}/kgc-v5rl", "title": "kgc v5rl", "code_file": "script.py", "language": "python",
+    json.dump({"id": f"{owner}/kgc-v5rl{suffix}", "title": f"kgc v5rl{suffix}", "code_file": "script.py", "language": "python",
                "kernel_type": "script", "is_private": True, "enable_gpu": False, "enable_internet": True,
                "dataset_sources": [f"{owner}/kgc-src"], "competition_sources": [], "kernel_sources": []},
               open(os.path.join(kdir, "kernel-metadata.json"), "w"), indent=1)
