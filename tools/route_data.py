@@ -66,7 +66,7 @@ class Tape:
 
 TAPES = []
 POOLS = {}                  # category -> list of tapes (see load_mix)
-OUR_SUBS = {56553173}       # our ladder submissions (v4a); their lost games are replayed as "loss" jobs
+OUR_SUBS = {56553173, 56564007}   # our ladder submissions (v4a, v4b); their lost games are replayed as "loss" jobs
 
 
 def _tape_rows(db, e, opp_side):
