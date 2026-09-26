@@ -134,6 +134,7 @@ def main():
     ap.add_argument("--max_steps", type=int, default=0, help="truncate games (smoke tests)")
     ap.add_argument("--eval_n", type=int, default=0, help="limit the eval suite (smoke tests)")
     ap.add_argument("--log_sec", type=float, default=300.0)
+    ap.add_argument("--skip_first_eval", type=int, default=0, help="1: no eval before training (baseline known)")
     a = ap.parse_args()
     device = "cuda" if torch.cuda.is_available() else "cpu"
     use_amp = device == "cuda"
@@ -179,7 +180,7 @@ def main():
     emit("BASE", {"n": len(base), "win": round(float(np.mean([1.0 if d > 0 else 0.5 if d == 0 else 0.0 for _, d in base.values()])), 3)})
     workers = R.Workers(procs, vocab)
     best = state.get("best_key")
-    last_eval = -1e9
+    last_eval = time.time() if a.skip_first_eval else -1e9
     rng = random.Random(int(time.time()))
     gen = {"pool": None, "it": None}
 
@@ -346,8 +347,9 @@ def main():
         state["elapsed_h"] = t_h()
         json.dump(state, open(state_p, "w"))
         it += 1
-    last_eval = -1e9
-    maybe_eval("final")
+    if it > 0:                                         # nothing new to evaluate without GRPO iterations
+        last_eval = -1e9
+        maybe_eval("final")
     workers.close()
 
 
