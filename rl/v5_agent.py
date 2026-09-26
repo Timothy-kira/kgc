@@ -37,7 +37,7 @@ BASE_SETTINGS = {"clamp_sells": True}
 MIN_MONEY = 3000
 SHED_HOLD_MAX = 85
 FERT_RESERVE = 10
-BUCKET_START = 2 ** 13
+BUCKET_START = 2 ** 15                 # = model/opp_data.layout_for: pretrained Engram tables transplant 1:1
 
 try:
     K = importlib.import_module("kaggle_environments.envs.kaggriculture.kaggriculture")

@@ -114,7 +114,7 @@ def train_task(args):
         for a, v in zip(s["alts"], s["res"]):
             if not isinstance(v, Exception):
                 r[a] = reward(v)
-        out.append(dict(inp=s["inp"], head=s["head"], greedy=s["greedy"], r=r, t=s["t"], kind=kind))
+        out.append(dict(inp=s["inp"], head=s["head"], greedy=s["greedy"], r=r, t=s["t"], kind=kind, job=j))
     return dict(job=j, kind=kind, final=final, samples=out, sec=time.time() - t0)
 
 
@@ -269,6 +269,9 @@ def main():
     ap.add_argument("--eval_pools", default="", help="whole-DB pools: EVAL on the ~310-game fresh suite (tools/v5_recheck)")
     ap.add_argument("--learner_threads", type=int, default=1)
     ap.add_argument("--save_frac", type=float, default=1.0, help="share of update batches saved (compressed)")
+    ap.add_argument("--sample_only", action="store_true",
+                    help="pure sampler for rl/v5_offline.py: act with the initial policy (= v4b), no learning / EVAL, "
+                         "save every batch; samples of all sampler kernels pool (Q under the v4b continuation)")
     a = ap.parse_args()
     torch.set_num_threads(1)
     os.makedirs(a.out, exist_ok=True)
@@ -314,15 +317,18 @@ def main():
     with warm_pool(a.procs, maxtasksperchild=50) as pool:
         torch.set_num_threads(a.learner_threads)
         base_path = os.path.join(a.out, "base_eval.json")
-        if os.path.exists(base_path):
+        if a.sample_only:
+            base, a.eval_min, a.save_frac = {}, 1e9, 1.0
+        elif os.path.exists(base_path):
             base = {int(k): tuple(v) for k, v in json.load(open(base_path)).items()}
         else:
             base = {}
             for tag, j, kind, d in pool.imap_unordered(eval_task, [("base", j, spec, None) for j, spec in suite]):
                 base[j] = (kind, d)
             json.dump(base, open(base_path, "w"))
-        wb = np.mean([1.0 if d > 0 else 0.5 if d == 0 else 0.0 for _, d in base.values()])
-        print(json.dumps({"BASE": {"n": len(base), "win": round(float(wb), 3)}}), flush=True)
+        if base:
+            wb = np.mean([1.0 if d > 0 else 0.5 if d == 0 else 0.0 for _, d in base.values()])
+            print(json.dumps({"BASE": {"n": len(base), "win": round(float(wb), 3)}}), flush=True)
         n_eval, last_eval, best = 0, -1e9, None
         it, j_next = 0, random.randrange(10 ** 7) * 10
         buf, n_tasks, t_it = [], 0, time.time()
@@ -358,6 +364,13 @@ def main():
                 comp = [dict(s_, inp={k: (v.astype(np.float16) if k == "feats" else v.astype(np.int32) if k.startswith("rows")
                                           else v) for k, v in s_["inp"].items()}) for s_ in buf]
                 pickle.dump(comp, open(os.path.join(a.out, f"samples_{it:04d}.pkl"), "wb"))
+            if a.sample_only:
+                dt = time.time() - t_it
+                print("ITER " + json.dumps({"it": it, "samples": len(buf), "tasks": n_tasks,
+                                            "spm": round(len(buf) / dt * 60, 1),
+                                            "t_h": round((time.time() - t_start) / 3600, 2)}), flush=True)
+                it, buf, n_tasks, t_it = it + 1, [], 0, time.time()
+                continue
             st = update(net, prior, opt, buf, a)
             if a.ema > 0:
                 with torch.no_grad():
