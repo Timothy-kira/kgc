@@ -263,11 +263,11 @@ def main():
     amp_dtype = torch.bfloat16 if (use_amp and torch.cuda.get_device_capability()[0] >= 8) else torch.float16
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp and amp_dtype == torch.float16)
     print("amp dtype", amp_dtype, "world", world, flush=True)
-    # Engram tables learn from sparse hits: 10x lr, no weight decay (DeepSeek trains them with their own optimizer)
+    # Engram tables: Adam at 5x the backbone lr, no weight decay (Engram paper, arXiv 2601.07372, section 4)
     tab = [p for n, p in core.named_parameters() if n.startswith("engrams.") and n.endswith("embed.weight")]
     tab_ids = {id(p) for p in tab}
     rest = [p for p in net.parameters() if id(p) not in tab_ids]
-    groups = [{"params": rest, "mult": 1.0}] + ([{"params": tab, "mult": 10.0, "weight_decay": 0.0}] if tab else [])
+    groups = [{"params": rest, "mult": 1.0}] + ([{"params": tab, "mult": float(os.environ.get("KGC_ENGRAM_LR_MULT", "5")), "weight_decay": 0.0}] if tab else [])
     opt = torch.optim.AdamW(groups, lr=lr, betas=(0.9, 0.95), weight_decay=0.05)
     coefs = {"value": 0.2, "mtp": 0.3, "index": 0.1, "bwd": a.bwd, "policy": a.policy_w, "opp": 1.0}
     loader = Loader(train, a.batch, ms, a.crop_steps, device, epochs=a.epochs, loser_w=loser_w,
