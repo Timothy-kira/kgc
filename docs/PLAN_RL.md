@@ -111,3 +111,28 @@
   - 新版加入 EMA 行动权重、自举集成头和下置信界行动（`--ens/--lcb_c/--ema`）。
   - 评估改为约 310 局新对局，按天梯构成加权（near 0.55 / loss 0.15 / top 0.10 / live 0.15 / self 0.05）。
 - **kernel 精简**：按用户要求删除了所有副本和旧运行，同时只保留 1 个 TPU 采样任务。
+
+## 9. Retrain Engram on all replays (user request, 09-26 16:00 UTC)
+
+**Why.** The Engram opponent memory has proven very useful, so every replay goes into updating it.
+
+**Crawling**
+- The crawler now runs in two partitioned notebooks: `xishengfeng/kgc-crawl-0` (`--part 0/2`) and `evelynyang02/kgc-crawl-1` (`--part 1/2`).
+- Both resume from the public DB `xishengfeng/kaggriculture-replay-db` (82,498 games; state.json sits at the dataset root).
+- Each outputs only its new shards `ep_*_p<k>.parquet` plus state/index.
+
+**Extraction**
+- `notebooks/build_engdata_kernel.py` runs seq (`data/seq_extract.py`) and opp (`data/opp_flow_extract.py`) extraction.
+- Games with min score ≥ 1500 are all included; the previous run used only ≥ 1800 on shards up to ~495.
+- Kernels:
+  - `evelynyang02/kgc-engdata-0`: shards 0:420;
+  - `evelynyang02/kgc-engdata-1`: shards 420:835.
+- Once crawling finishes, merge the new shards into the DB and add one more engdata kernel for the new shards.
+
+**Training (evelynyang02, GPU)**
+- Builder: `notebooks/build_train_kernel.py`, stage `engram`.
+- data_ds: `evelynyang02/kgc-ckpt`, which now contains engram.pt from 09-26 plus opp_vocab.npz.
+- init: `engram`.
+- init_kernel: the engdata kernels.
+- extra args: `--opp_data /kaggle/input/**/opp/ep_*.npz --opp_vocab /kaggle/input/**/opp_vocab.npz --policy_w 0.3`.
+- **The vocabulary stays fixed**, which keeps the engram_rows shape and v5 compatibility; new codes map to UNK.
