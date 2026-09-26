@@ -27,6 +27,7 @@ def play(job):
     best_effort()
     kind, opp_name, seed, seat, cfg, tape = RD.job_spec(j)
     m = load_module(RD.CHA22)
+    m._IMPL.chassis.cfg.update(json.loads(os.environ.get("SWEEP_BASE", "{}")))   # e.g. v4b's clamp_sells
     m._IMPL.chassis.cfg.update(VARIANTS[name])
     me = call_adapter(getattr(m, entry_name(m)))
     opp = tape if tape is not None else load_agent(opp_name)
