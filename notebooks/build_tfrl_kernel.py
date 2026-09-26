@@ -20,7 +20,7 @@ os.chdir("/kaggle/working/src")
 subprocess.run(["nvidia-smi"], check=False)
 env = dict(os.environ, PYTHONPATH="/kaggle/working/src")
 cmd = [sys.executable, "-u", "-m", "rl.tf_rl", "--ckpt", ck, "--pools", "assets/rl_pools.pkl",
-       "--vocab", "assets/opp_vocab.npz", "--out", "/kaggle/working/tf", "--hours", "__HOURS__"] + __EXTRA__
+       "--vocab", "assets/opp_vocab.npz", "--out", "/kaggle/working/tf", "--hours", "__HOURS__"] + [x.replace("{ck}", ck) for x in __EXTRA__]
 print("cmd", cmd, flush=True)
 p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
 for line in p.stdout:
