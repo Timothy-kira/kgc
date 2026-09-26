@@ -46,5 +46,5 @@ if __name__ == "__main__":
     open(os.path.join(kdir, "script.py"), "w").write(SCRIPT.replace("__HOURS__", hours).replace("__EXTRA__", repr(extra)))
     json.dump({"id": f"{owner}/kgc-v5rl{suffix}", "title": f"kgc v5rl{suffix}", "code_file": "script.py", "language": "python",
                "kernel_type": "script", "is_private": True, "enable_gpu": False, "enable_internet": True,
-               "dataset_sources": [f"{owner}/kgc-src"], "competition_sources": [], "kernel_sources": []},
+               "dataset_sources": [f"{owner}/" + os.environ.get("V5_DATASET", "kgc-src")], "competition_sources": [], "kernel_sources": []},
               open(os.path.join(kdir, "kernel-metadata.json"), "w"), indent=1)
