@@ -20,6 +20,8 @@ from agent.obs_tokens import OBS_TOKEN_ID, TYPE_OF_SLOT, quad_features
 from model.clm_policy import ACT_ID, OBS_IDS, SLOT_IDS
 from rl.token_rollout import WorkerPool  # noqa: F401  (same CPU workers)
 
+CHUNK = True                                    # obs chunk in one batched call (tools/test_chunk_multi.py)
+
 
 class CLMBatchedPolicy:
     def __init__(self, net, device, temperature=1.0):
@@ -52,10 +54,14 @@ class CLMBatchedPolicy:
         net, dev = self.net, self.device
         B = len(sts)
         seq = torch.cat([self.obs_embeddings(sts), net.embed(torch.full((B, 1), ACT_ID, device=dev))], 1)
-        h = None
-        for i in range(seq.size(1)):
-            h = net.step_multi(seq[:, i:i + 1], pos, caches)
-            pos += 1
+        if CHUNK:                               # one call for the whole observation chunk (decode_chunk_multi)
+            h = net.step_multi(seq, pos, caches)[:, -1:]
+            pos += seq.size(1)
+        else:
+            h = None
+            for i in range(seq.size(1)):
+                h = net.step_multi(seq[:, i:i + 1], pos, caches)
+                pos += 1
         plans = [SlotPlan(s["n_hands"]) for s in sts]
         decs = [[] for _ in range(B)]
         lps = [[] for _ in range(B)]
