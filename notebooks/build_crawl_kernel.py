@@ -40,7 +40,7 @@ if best is None:
 OUT = "/kaggle/working/replay_db"
 from data import crawl
 crawl.main(["--out", OUT, "--resume-from", best, "--min-score", "1500", "--max-hours", "__HOURS__", "--rounds", "1000",
-            "--max-lists", "300", "--workers", "12", "--list-workers", "2", "--shard-size", "250",
+            "--max-lists", "60", "--workers", "12", "--list-workers", "2", "--shard-size", "250",
             "--part", "__K__/__N__"])
 out = "/kaggle/working/crawl_out"
 os.makedirs(os.path.join(out, "shards"), exist_ok=True)
