@@ -9,7 +9,7 @@ from kernel_common import build_kernel
 
 BODY = r'''
 import glob, json
-dbs = glob.glob("/kaggle/input/**/replay_db/state.json", recursive=True)
+dbs = [p for p in glob.glob("/kaggle/input/**/state.json", recursive=True) if os.path.isdir(os.path.join(os.path.dirname(p), "index"))]
 db = os.path.dirname(max(dbs, key=lambda p: json.load(open(p)).get("n_downloaded", 0)))
 print("DB", db, flush=True)
 ncpu = os.cpu_count()

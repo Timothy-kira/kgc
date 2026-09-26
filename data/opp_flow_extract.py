@@ -1,6 +1,6 @@
 """Replay DB shard -> opponent event streams + targets for the Engram opponent memory (docs/PLAN_v4.1.md).
 
-python -m data.opp_flow_extract <db_dir> <out_dir> [procs=4] [max_shards]
+python -m data.opp_flow_extract <db_dir> <out_dir> [procs=4] [max_shards | i:j]
 Environment-only re-simulation with the official interpreter (no observation tokens). For each episode and each
 seat k, the opponent is seat 1-k. One npz per DB shard (finished shards are skipped), K trajectories:
     episode_id i64 [K]  seat i8 [K]  t_off i32 [K+1]  d_off i32 [K+1]
@@ -111,7 +111,10 @@ def main():
     db = ReplayDB(sys.argv[1])
     out_dir = sys.argv[2]
     procs = int(sys.argv[3]) if len(sys.argv) > 3 else 4
-    shards = db.shards[-int(sys.argv[4]):] if len(sys.argv) > 4 else db.shards
+    shards = db.shards
+    if len(sys.argv) > 4:                                      # "i:j" = shard range, else last N shards
+        a = sys.argv[4]
+        shards = db.shards[slice(*[int(x) if x else None for x in a.split(":")])] if ":" in a else shards[-int(a):]
     os.makedirs(out_dir, exist_ok=True)
     jobs = [(s, os.path.join(out_dir, os.path.basename(s).replace(".parquet", ".npz"))) for s in shards]
     n = 0
