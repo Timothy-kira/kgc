@@ -45,7 +45,9 @@ def main():
     if len(sys.argv) > 4:
         RD.POOLS.update(RD.load_mix(sys.argv[4]))
     os.environ.setdefault("ROUTE_MIX", "near=0.5,top=0.2,live=0.3")
-    jobs = [(v, 300000 + j) for j in range(n) for v in VARIANTS]
+    only = [v for v in os.environ.get("SWEEP_VARIANTS", "").split(",") if v] or list(VARIANTS)
+    start = int(os.environ.get("SWEEP_START", "300000"))
+    jobs = [(v, start + j) for j in range(n) for v in only]
     res = {}
     with warm_pool(procs, maxtasksperchild=4) as pool, open(out, "a") as f:
         for name, j, kind, d in pool.imap_unordered(play, jobs):

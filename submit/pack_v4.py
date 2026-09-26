@@ -1,6 +1,6 @@
 """Pack the v4 agent (cha22 skeleton + Engram insertion points) into a single Kaggle main.py.
 
-python -m submit.pack_v4 <out_main.py> [route_weights.pt|none]
+python -m submit.pack_v4 <out_main.py> [route_weights.pt|none] [chassis settings json, e.g. '{"clamp_sells": true}']
 Embedded: league/cha22.py (exec'd as its own module), model/engram.py, model/route_engram.py,
 agent/opp_events.py. Runtime per step: the opponent's events are inferred from the observation
 (agent/opp_events.infer_flows) and pushed into the Engram key stream; at step 144 cha22's route table choice is
@@ -18,6 +18,7 @@ TEMPLATE = r'''# Kaggriculture v4: cha22 skeleton + Engram insertion points (H5 
 import base64 as _b64, sys as _sys, types as _types, io as _io
 _SRC = __SRC__
 _W = __W__
+_SETTINGS = __SETTINGS__
 
 def _load(name, deps=()):
     m = _types.ModuleType(name)
@@ -61,6 +62,7 @@ class _V4:
             import torch
             torch.set_num_threads(1)
             ch = _base._IMPL.chassis
+            ch.cfg.update(_SETTINGS)          # knob insertion point (tools/settings_sweep.py)
             routes = sorted(ch.routes)
             if _W:
                 blob = torch.load(_io.BytesIO(_b64.b64decode(_W)), map_location="cpu", weights_only=False)
@@ -124,16 +126,18 @@ def agent(obs, config=None):
 '''
 
 
-def build(out, weights=None):
+def build(out, weights=None, settings=None):
     src = {k: base64.b64encode(open(ROOT + v, "rb").read()).decode() for k, v in MODULES.items()}
     src["model.engram"] = src.pop("engram")
     src["agent.opp_events"] = src.pop("opp_events")
     src["model.route_engram"] = src.pop("route_engram")
     w = base64.b64encode(open(weights, "rb").read()).decode() if weights and weights != "none" else ""
-    code = TEMPLATE.replace("__SRC__", repr(src)).replace("__W__", repr(w))
+    code = TEMPLATE.replace("__SRC__", repr(src)).replace("__W__", repr(w)).replace("__SETTINGS__", repr(settings or {}))
     open(out, "w").write(code)
     return out
 
 
 if __name__ == "__main__":
-    build(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else None)
+    import json as _json
+    build(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else None,
+          _json.loads(sys.argv[3]) if len(sys.argv) > 3 else None)
