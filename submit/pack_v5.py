@@ -1,9 +1,10 @@
 """Pack the v5 agent (v4b = cha22 + clamp_sells, with the learned hold / dump residual of rl/v5_rl.py) into one
 Kaggle main.py.
 
-python -m submit.pack_v5 <out_main.py> <policy.pt> <opp_vocab.npz>
+python -m submit.pack_v5 <out_main.py> <policy.pt> <opp_vocab.npz> [margin=0] [c=0]
 Embedded: league/cha22.py (its own module), model/engram.py, agent/opp_events.py, model/opp_data.py, rl/v5_agent.py,
-rl/v5_policy.py, the compressed opponent-event vocab and the policy weights (Engram tables in fp16). Any exception in
+rl/v5_policy.py, the compressed opponent-event vocab and the policy weights (Engram tables int8 with a per-row fp16
+scale; ensemble size read from the head shape; acting rule = rl/v5_policy.PolicyRunner(margin, c)). Any exception in
 the residual path falls back to v4b's own action (rl/v5_agent.V5Agent.__call__).
 """
 import base64
@@ -46,10 +47,18 @@ def _make():
     torch.set_num_threads(1)
     A, P = _sys.modules["rl.v5_agent"], _sys.modules["rl.v5_policy"]
     vocab = _sys.modules["model.opp_data"].Vocab(_io.BytesIO(_b64.b64decode(_VOCAB)))
-    net = P.RLPolicy(vocab.sizes)
-    sd = torch.load(_io.BytesIO(_b64.b64decode(_W)), map_location="cpu")
-    net.load_state_dict({k: v.float() for k, v in sd.items()})
-    return A.V5Agent(vocab, policy_fn=P.PolicyRunner(net).greedy, module=_base)
+    raw = torch.load(_io.BytesIO(_b64.b64decode(_W)), map_location="cpu")
+    sd = {}
+    for k, v in raw.items():
+        if k.endswith(".q8"):
+            sd[k[:-3]] = v.float() * raw[k[:-3] + ".s8"].float()[:, None]
+        elif not k.endswith(".s8"):
+            sd[k] = v.float()
+    ens = sd["head.weight"].shape[0] // 15
+    net = P.RLPolicy(vocab.sizes, ens=ens)
+    net.load_state_dict(sd)
+    net.eval()
+    return A.V5Agent(vocab, policy_fn=P.PolicyRunner(net, __MARGIN__, __C__).greedy, module=_base)
 
 _AGENT = None
 
@@ -68,18 +77,30 @@ def agent(obs, config=None):
 '''
 
 
-def build(out, weights, vocab):
+def quant(sd):
+    out = {}
+    for k, v in sd.items():
+        if "embed.weight" in k:
+            s = v.abs().amax(1).clamp_min(1e-8) / 127.0
+            out[k + ".q8"] = torch.round(v / s[:, None]).clamp(-127, 127).to(torch.int8)
+            out[k + ".s8"] = s.half()
+        else:
+            out[k] = v
+    return out
+
+
+def build(out, weights, vocab, margin=0.0, c=0.0):
     src = {k: base64.b64encode(open(ROOT + v, "rb").read()).decode() for k, v in MODULES.items()}
-    sd = torch.load(weights, map_location="cpu")
-    sd = {k: (v.half() if "embed.weight" in k else v) for k, v in sd.items()}
+    sd = quant(torch.load(weights, map_location="cpu"))
     buf = io.BytesIO()
     torch.save(sd, buf)
     w = base64.b64encode(buf.getvalue()).decode()
     voc = base64.b64encode(open(vocab, "rb").read()).decode()
     code = TEMPLATE.replace("__SRC__", repr(src)).replace("__W__", repr(w)).replace("__VOCAB__", repr(voc))
+    code = code.replace("__MARGIN__", repr(float(margin))).replace("__C__", repr(float(c)))
     open(out, "w").write(code)
     return out
 
 
 if __name__ == "__main__":
-    build(sys.argv[1], sys.argv[2], sys.argv[3])
+    build(sys.argv[1], sys.argv[2], sys.argv[3], *(float(x) for x in sys.argv[4:6]))
