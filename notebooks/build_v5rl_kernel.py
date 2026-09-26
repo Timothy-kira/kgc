@@ -48,3 +48,7 @@ if __name__ == "__main__":
                "kernel_type": "script", "is_private": True, "enable_gpu": False, "enable_internet": True,
                "dataset_sources": [f"{owner}/" + os.environ.get("V5_DATASET", "kgc-src")], "competition_sources": [], "kernel_sources": []},
               open(os.path.join(kdir, "kernel-metadata.json"), "w"), indent=1)
+    if os.environ.get("V5_ACCEL") == "tpu":                  # TPU VM host = 224 CPU cores for the fork rollouts
+        m = json.load(open(os.path.join(kdir, "kernel-metadata.json")))
+        m.update(enable_tpu=True, machine_shape="Tpu1VmV38")
+        json.dump(m, open(os.path.join(kdir, "kernel-metadata.json"), "w"), indent=1)

@@ -13,8 +13,12 @@ FOLLOW_BIAS = 2.0
 
 
 class RLPolicy(nn.Module):
-    def __init__(self, vocab_sizes, dim=128, n_layers=2, n_heads=4, follow_bias=FOLLOW_BIAS):
+    """ens > 1: bootstrap ensemble of output heads on a shared trunk (forward_all -> [B, ens, 5, 3]; forward returns
+    the ensemble mean). ens = 1 is the original single-head layout (old weights load unchanged)."""
+
+    def __init__(self, vocab_sizes, dim=128, n_layers=2, n_heads=4, follow_bias=FOLLOW_BIAS, ens=1):
         super().__init__()
+        self.ens = ens
         lay = engram_layout(vocab_sizes)
         self.inp = nn.Sequential(nn.Linear(FEAT_DIM, dim), nn.GELU(), nn.Linear(dim, dim))
         self.pos = nn.Parameter(torch.zeros(WINDOW, dim))
@@ -23,21 +27,24 @@ class RLPolicy(nn.Module):
         layer = nn.TransformerEncoderLayer(dim, n_heads, 4 * dim, dropout=0.0, batch_first=True, norm_first=True)
         self.blocks = nn.TransformerEncoder(layer, n_layers, enable_nested_tensor=False)
         self.norm = nn.LayerNorm(dim)
-        self.head = nn.Linear(dim, len(CTRL) * N_ACT)
+        self.head = nn.Linear(dim, ens * len(CTRL) * N_ACT)
         with torch.no_grad():
             self.head.weight.mul_(0.01)
             self.head.bias.zero_()
-            self.head.bias.view(len(CTRL), N_ACT)[:, FOLLOW] = follow_bias
+            self.head.bias.view(ens, len(CTRL), N_ACT)[:, :, FOLLOW] = follow_bias
 
-    def forward(self, feats, rows_s, rows_d, mask, allowed):
+    def forward_all(self, feats, rows_s, rows_d, mask, allowed):
         """feats [B,W,F], rows_* [B,W,C] int64, mask [B,W] bool (valid tokens; the last is the current decision),
-        allowed [B,5,3] bool -> masked logits [B,5,3]."""
+        allowed [B,5,3] bool -> masked logits [B,ens,5,3]."""
         x = self.inp(feats) + self.pos
         x = self.eng_s(x.unsqueeze(2), rows_s, mask).squeeze(2)
         x = self.eng_d(x.unsqueeze(2), rows_d, mask).squeeze(2)
         h = self.blocks(x, src_key_padding_mask=~mask)
-        lg = self.head(self.norm(h[:, -1])).view(-1, len(CTRL), N_ACT)
-        return lg.masked_fill(~allowed, -1e9)
+        lg = self.head(self.norm(h[:, -1])).view(-1, self.ens, len(CTRL), N_ACT)
+        return lg.masked_fill(~allowed.unsqueeze(1), -1e9)
+
+    def forward(self, *x):
+        return self.forward_all(*x).mean(1)
 
     def param_groups(self, lr, table_mult=5.0):
         tab = [self.eng_s.embed.weight, self.eng_d.embed.weight]
@@ -57,15 +64,24 @@ def batch_inputs(inps, device="cpu"):
 class PolicyRunner:
     """CPU inference for actors: greedy joint action and per-head probabilities."""
 
-    def __init__(self, net, margin=0.0):
+    def __init__(self, net, margin=0.0, c=0.0):
         self.net = net.eval()
         self.margin = margin                  # advantage mode: deviate only if predicted gain > margin (logit units)
+        self.c = c                            # ensemble: deviate only if mean - c * std of the predicted gain > margin
 
     @torch.no_grad()
     def logits(self, inp):
         return self.net(*batch_inputs([inp]))[0]
 
     def greedy(self, inp):
+        if self.c and getattr(self.net, "ens", 1) > 1:
+            with torch.no_grad():
+                la = self.net.forward_all(*batch_inputs([inp]))[0]                  # [ens,5,3]
+            gain = la - la[..., FOLLOW:FOLLOW + 1]
+            score = gain.mean(0) - self.c * gain.std(0)
+            score[:, FOLLOW] = self.margin
+            score = score.masked_fill(la[0] < -1e8, -1e9)
+            return [int(a) for a in score.argmax(-1)], None
         lg = self.logits(inp)
         if self.margin:
             lg = lg.clone()
