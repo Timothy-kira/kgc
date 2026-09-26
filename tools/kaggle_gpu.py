@@ -66,13 +66,9 @@ def replace(kernel_dir, keep_outputs=None):
 
 
 def quota():
-    from kaggle.api.kaggle_api_extended import KaggleApi
-    from kagglesdk.kernels.types.kernels_api_service import ApiGetAcceleratorQuotaStatisticsRequest
-    api = KaggleApi()
-    api.authenticate()
-    with api.build_kaggle_client() as k:
-        r = k.kernels.kernels_api_client.get_accelerator_quota_statistics(ApiGetAcceleratorQuotaStatisticsRequest())
-    print(r.to_json() if hasattr(r, "to_json") else r)
+    """Weekly GPU/TPU usage as shown by the official CLI (`kaggle quota`: used / remaining / total hours). The
+    SDK's get_accelerator_quota_statistics field totalTimeAllowed (21600 s) is NOT the weekly allowance."""
+    print(_run(["kaggle", "quota"]).stdout)
 
 
 if __name__ == "__main__":
