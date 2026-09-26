@@ -57,8 +57,9 @@ def batch_inputs(inps, device="cpu"):
 class PolicyRunner:
     """CPU inference for actors: greedy joint action and per-head probabilities."""
 
-    def __init__(self, net):
+    def __init__(self, net, margin=0.0):
         self.net = net.eval()
+        self.margin = margin                  # advantage mode: deviate only if predicted gain > margin (logit units)
 
     @torch.no_grad()
     def logits(self, inp):
@@ -66,6 +67,9 @@ class PolicyRunner:
 
     def greedy(self, inp):
         lg = self.logits(inp)
+        if self.margin:
+            lg = lg.clone()
+            lg[:, FOLLOW] += self.margin
         return [int(a) for a in lg.argmax(-1)], None
 
     def probs(self, inp):

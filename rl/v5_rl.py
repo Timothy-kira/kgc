@@ -12,6 +12,12 @@ enumerates the head's actions): A(a) = r(a) - mean_group r, r = 1{diff>0} + 0.5*
 Learner: maximise sum_a pi(a|s) A(s,a) (exact expectation over the group, so no importance ratio is needed)
 - beta KL(pi || pi_prior) + eta H(pi). Engram tables at 5x lr without weight decay (Engram paper).
 
+--obj adv (advantage regression): the head's logits are read as advantages in units of 0.01 reward (200 money):
+Huber(lg[a] - lg[greedy], (r(a) - r(greedy)) / 0.01) on the enumerated actions; acting greedily after adding
+--margin to the follow logit, i.e. deviate only where the predicted gain exceeds the margin. Unlike the policy
+gradient (whose signal on an action vanishes with its probability), this keeps learning where follow dominates.
+Every update's samples are saved (samples_NNNN.pkl) for offline re-use.
+
 Monitoring
   ITER  per update: samples, samples/min, headroom = mean max_a r(a) - r(greedy), mean |A|, share of samples whose
         best action is not the greedy one, greedy deviation rate (heads whose greedy action is not follow), entropy,
@@ -30,6 +36,7 @@ import time
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from env.fast_env import FarmEnv
 from infra.fork import best_effort, fork_branches, warm_pool
@@ -52,7 +59,7 @@ def _net(path):
         net = RLPolicy(G["vocab"].sizes)
         if st is not None:
             net.load_state_dict(torch.load(path, map_location="cpu"))
-        G["runner"], G["net_key"] = PolicyRunner(net), (path, st)
+        G["runner"], G["net_key"] = PolicyRunner(net, G.get("margin", 0.0)), (path, st)
     return G["runner"]
 
 
@@ -163,6 +170,7 @@ def update(net, prior, opt, samples, a):
     mean = Rz.sum(1, keepdim=True) / valid.sum(1, keepdim=True)
     A = torch.where(valid, R - mean, torch.zeros_like(R))
     k = torch.tensor([s["head"] for s in samples])
+    G_idx = torch.tensor([s["greedy"] for s in samples])
     with torch.no_grad():
         lp0 = torch.log_softmax(prior(*X), -1)
     n, st = len(samples), {}
@@ -171,14 +179,25 @@ def update(net, prior, opt, samples, a):
         for i in range(0, n, a.mb):
             idx = perm[i:i + a.mb]
             xb = tuple(x[idx] for x in X)
-            lp = torch.log_softmax(net(*xb), -1)
+            raw = net(*xb)
+            lp = torch.log_softmax(raw, -1)
             p = lp.exp()
             al = xb[4]
-            pk = p[torch.arange(len(idx)), k[idx]]
-            pg = -(pk * A[idx]).sum(-1).mean()
+            ii = torch.arange(len(idx))
+            pk = p[ii, k[idx]]
             kl = torch.where(al, p * (lp - lp0[idx]), torch.zeros_like(p)).sum(-1).mean()
             ent = -torch.where(al, p * lp, torch.zeros_like(p)).sum(-1).mean()
-            loss = pg + a.beta * kl - a.eta * ent
+            if a.obj == "adv":
+                lgk = raw[ii, k[idx]]                                         # [n,3]
+                gi = G_idx[idx]
+                pred = lgk - lgk.gather(1, gi[:, None])
+                tgt = ((R[idx] - R[idx].gather(1, gi[:, None])) / 0.01).clamp(-50, 50)
+                m = valid[idx] & (torch.arange(3)[None] != gi[:, None])
+                pg = F.huber_loss(pred[m], tgt[m], delta=5.0) if m.any() else raw.sum() * 0
+                loss = pg
+            else:
+                pg = -(pk * A[idx]).sum(-1).mean()
+                loss = pg + a.beta * kl - a.eta * ent
             opt.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)
@@ -186,7 +205,9 @@ def update(net, prior, opt, samples, a):
             for kk, v in (("pg", pg), ("kl", kl), ("ent", ent), ("loss", loss)):
                 st.setdefault(kk, []).append(float(v))
     with torch.no_grad():
-        lg = net(*X)
+        lg = net(*X).clone()
+        if a.obj == "adv":
+            lg[..., FOLLOW] += a.margin
         choice = X[4].sum(-1) > 1                                  # heads with a real choice
         dev = float((lg.argmax(-1) != FOLLOW)[choice].float().mean()) if choice.any() else 0.0
     greedy_r = torch.stack([R[i, s["greedy"]] for i, s in enumerate(samples)])
@@ -218,10 +239,13 @@ def main():
     ap.add_argument("--eval_min", type=float, default=40.0)
     ap.add_argument("--h2h", type=int, default=20)
     ap.add_argument("--mix", default="")
+    ap.add_argument("--obj", choices=["pg", "adv"], default="pg")
+    ap.add_argument("--margin", type=float, default=1.0, help="adv mode: follow-logit margin when acting")
     a = ap.parse_args()
     torch.set_num_threads(1)
     os.makedirs(a.out, exist_ok=True)
     G["vocab"] = Vocab(a.vocab)
+    G["margin"] = a.margin if a.obj == "adv" else 0.0
     mix = dict(MIX)
     for kv in filter(None, a.mix.split(",")):
         k, v = kv.split("=")
@@ -284,6 +308,8 @@ def main():
             buf += r["samples"]
             if len(buf) < a.batch:
                 continue
+            import pickle
+            pickle.dump(buf, open(os.path.join(a.out, f"samples_{it:04d}.pkl"), "wb"))
             st = update(net, prior, opt, buf, a)
             torch.save(net.state_dict(), latest + ".tmp")
             os.replace(latest + ".tmp", latest)
