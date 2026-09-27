@@ -1,7 +1,7 @@
 """Pack the v5 agent (v4b = cha22 + clamp_sells, with the learned hold / dump residual of rl/v5_rl.py) into one
 Kaggle main.py.
 
-python -m submit.pack_v5 <out_main.py> <policy.pt> <opp_vocab.npz> [margin=0] [c=0]
+python -m submit.pack_v5 <out_main.py> <policy.pt> <opp_vocab.npz> [margin=0] [c=0] [cooldown=0] [budget=-1]
 Embedded: league/cha22.py (its own module), model/engram.py, agent/opp_events.py, model/opp_data.py, rl/v5_agent.py,
 rl/v5_policy.py, the compressed opponent-event vocab and the policy weights (Engram tables int8 with a per-row fp16
 scale; ensemble size read from the head shape; acting rule = rl/v5_policy.PolicyRunner(margin, c)). Any exception in
@@ -58,7 +58,8 @@ def _make():
     net = P.RLPolicy(vocab.sizes, ens=ens)
     net.load_state_dict(sd)
     net.eval()
-    return A.V5Agent(vocab, policy_fn=P.PolicyRunner(net, __MARGIN__, __C__).greedy, module=_base)
+    return A.V5Agent(vocab, policy_fn=P.PolicyRunner(net, __MARGIN__, __C__).greedy, module=_base,
+                     cooldown=__COOL__, budget=__BUDGET__)
 
 _AGENT = None
 
@@ -89,7 +90,7 @@ def quant(sd):
     return out
 
 
-def build(out, weights, vocab, margin=0.0, c=0.0):
+def build(out, weights, vocab, margin=0.0, c=0.0, cooldown=0, budget=-1):
     src = {k: base64.b64encode(open(ROOT + v, "rb").read()).decode() for k, v in MODULES.items()}
     sd = quant(torch.load(weights, map_location="cpu"))
     buf = io.BytesIO()
@@ -98,9 +99,10 @@ def build(out, weights, vocab, margin=0.0, c=0.0):
     voc = base64.b64encode(open(vocab, "rb").read()).decode()
     code = TEMPLATE.replace("__SRC__", repr(src)).replace("__W__", repr(w)).replace("__VOCAB__", repr(voc))
     code = code.replace("__MARGIN__", repr(float(margin))).replace("__C__", repr(float(c)))
+    code = code.replace("__COOL__", repr(int(cooldown))).replace("__BUDGET__", repr(None if int(budget) < 0 else int(budget)))
     open(out, "w").write(code)
     return out
 
 
 if __name__ == "__main__":
-    build(sys.argv[1], sys.argv[2], sys.argv[3], *(float(x) for x in sys.argv[4:6]))
+    build(sys.argv[1], sys.argv[2], sys.argv[3], *(float(x) for x in sys.argv[4:8]))

@@ -53,7 +53,8 @@ class V5Agent:
     """Callable Kaggle agent. `policy_fn(inputs) -> (actions[5], logp)` decides at decision steps; `override`
     (a length-5 action list) replaces the policy for the next decision only (used by fork branches)."""
 
-    def __init__(self, vocab, policy_fn=None, cha22_path="league/cha22.py", settings=None, module=None):
+    def __init__(self, vocab, policy_fn=None, cha22_path="league/cha22.py", settings=None, module=None,
+                 cooldown=0, budget=None):
         self.m = module if module is not None else load_module(cha22_path)
         self.m._IMPL.chassis.cfg.update(BASE_SETTINGS if settings is None else settings)
         self.base = call_adapter(getattr(self.m, entry_name(self.m)))
@@ -69,6 +70,11 @@ class V5Agent:
         self.hold_until = {p: -1 for p in CTRL}
         self.override = None
         self.log = []                                      # (step, inputs, actions, logp) of every decision
+        # Trust region around the training distribution (samples = ONE deviation then v4b): after a policy deviation
+        # on a head, that head follows for the next `cooldown` decisions; at most `budget` deviations per game.
+        self.cooldown, self.budget = cooldown, budget
+        self.cool = [0] * len(CTRL)
+        self.n_dev = 0
 
     # ------------------------------------------------------------------ state tracking
     def sync(self, obs):
@@ -167,11 +173,25 @@ class V5Agent:
             self.override = None
         elif self.policy_fn is not None:
             acts, logp = self.policy_fn(inp)
+            acts = self._trust_region(acts)
         else:
             acts, logp = [FOLLOW] * len(CTRL), 0.0
         acts = [a if inp["allowed"][k, a] else FOLLOW for k, a in enumerate(acts)]
         self.log.append((int(obs["step"]), inp, acts, logp))
         return acts
+
+    def _trust_region(self, acts):
+        out = []
+        for k, a in enumerate(acts):
+            if a != FOLLOW and (self.cool[k] > 0 or (self.budget is not None and self.n_dev >= self.budget)):
+                a = FOLLOW
+            if a != FOLLOW:
+                self.n_dev += 1
+                self.cool[k] = self.cooldown
+            elif self.cool[k] > 0:
+                self.cool[k] -= 1
+            out.append(a)
+        return out
 
     def apply(self, obs, action, acts):
         step = int(obs["step"])

@@ -127,7 +127,8 @@ def eval_task(args):
     if tag == "base":
         me = v4b()
     else:
-        me = V5Agent(G["vocab"], policy_fn=_net(weights).greedy)
+        me = V5Agent(G["vocab"], policy_fn=_net(weights).greedy, cooldown=G.get("cooldown", 0),
+                     budget=G.get("budget"))
     opp = v4b() if tag == "h2h" else OppMix.make(how)
     return tag, j, kind, _play(FarmEnv(seed, cfg), me, opp, seat)
 
