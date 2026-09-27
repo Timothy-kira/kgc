@@ -173,6 +173,8 @@ def main():
     vocab = Vocab(a.vocab)
     torch.manual_seed(0)
     net = RLPolicy(vocab.sizes, ens=a.ens)
+    if a.init_policy and "*" in a.init_policy:                  # kernels pass a glob into the mounted inputs
+        a.init_policy = sorted(glob.glob(a.init_policy, recursive=True))[0]
     if a.init_policy:
         net.load_state_dict(torch.load(a.init_policy, map_location="cpu"))
         print("init_policy", a.init_policy, flush=True)
