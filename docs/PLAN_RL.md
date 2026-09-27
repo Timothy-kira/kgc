@@ -167,3 +167,27 @@
 - It then picks (margin, c) by the realised decision value on held-out games.
 - Recheck with `tools.v5_recheck` on 313 games using the ladder-weighted rule, then `submit.pack_v5` (int8 tables, ~40 MB) and submit.
 - A second round samples with the promoted policy as the base.
+
+## 11. Near-opponent regression: diagnosis and fix (09-27)
+
+**Symptom**
+- The one-step improvement policies gain in mirror and losing games but lose 2.5–5 pp against near-rated opponents, which are 55% of the ladder.
+- Held-out single-decision gains against near opponents were still positive.
+
+**Cause: compounding deviations**
+- 91% of the deviations against near opponents are "hold".
+- Consecutive holds on the same product add up to "never sell", a situation that never appears in the one-deviation-then-v4b samples.
+- On top of that, rule selection by mean gain is dominated by mirror games (0.0195 per decision, vs 0.0002 for near).
+
+**Fixes**
+1. **Trust region** (`V5Agent` cooldown and budget). Cooldown 4 raised the ladder-weighted gain to +0.040 ± 0.017, but near was still −2.5 pp. This is the version submitted as 56605669.
+2. **`v5_offline --weights ladder`**
+   - Categories are reweighted to the ladder mix.
+   - The acting rule is selected on the ladder-weighted held-out gain, with near and top gains required to be ≥ 0.
+   - The new-Engram variant at 0.25/2.0 in the 313-game recheck: win 80.5% vs 69.5%, ladder-weighted gain +0.059 ± 0.015, near −0.9 pp, top −2.5 pp (1 of 40 games), h2h vs v4b 97.5%.
+   - Submitted as 56608523.
+3. **Round-2 sampling** with π₁ = cooldown-4 policy (`kgc-v5rl-r2a..f`) removes the distribution shift itself; the learner follows once the samples are in.
+
+**Engram continuation**
+- The RTX Pro 6000 (via the ARC competition) requires internet off. The user switched to T4: `xishengfeng/kgc-train-engram`.
+- Data: evelynyang02/kgc-engz-0..7, eight single-zip datasets. A single create call with about 1,800 files returned 504 and left the upload hanging.
