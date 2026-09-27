@@ -4,6 +4,7 @@ python notebooks/build_train_kernel.py <kernel_dir> <owner> <data_datasets,...> 
 data_datasets / init_kernel may be comma-separated lists (e.g. checkpoint dataset + seq-extraction kernels).
 Output: /kaggle/working/ckpt/{stage}.pt, model_args.json, train.log
 """
+import os
 import sys
 
 from kernel_common import build_kernel
@@ -49,30 +50,54 @@ def _latency_monitor():
             print("LATENCY", (r.stdout.strip().splitlines() or [r.stderr[-300:]])[-1], flush=True)
 threading.Thread(target=_gpu_monitor, daemon=True).start()
 threading.Thread(target=_latency_monitor, daemon=True).start()
+TRIES = __TRIES__                             # (batch, crop_steps), largest first; next one on CUDA OOM
+if not TRIES:
+    TRIES = [(int(cmd[cmd.index("--batch") + 1]), int(cmd[cmd.index("--crop_steps") + 1]))]
 with open("/kaggle/working/train.log", "w") as log:
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    for line in p.stdout:
-        if "open_spiel" in line:                  # kaggle_environments import noise
-            continue
-        print(line, end="", flush=True)
-        log.write(line)
-        log.flush()
-    rc = p.wait()
-    print("train exit code", rc, flush=True)
-    log.write(f"train exit code {rc}\n")
+    for b, c in TRIES:
+        cmd[cmd.index("--batch") + 1], cmd[cmd.index("--crop_steps") + 1] = str(b), str(c)
+        print("TRY batch", b, "crop", c, flush=True)
+        log.write(f"TRY batch {b} crop {c}\n")
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        oom = False
+        for line in p.stdout:
+            if "open_spiel" in line:              # kaggle_environments import noise
+                continue
+            oom = oom or "out of memory" in line.lower()
+            print(line, end="", flush=True)
+            log.write(line)
+            log.flush()
+        rc = p.wait()
+        print("train exit code", rc, flush=True)
+        log.write(f"train exit code {rc}\n")
+        if not (rc != 0 and oom):
+            break
+        subprocess.run("pkill -f model.train_clm", shell=True)
 subprocess.run("free -g; nvidia-smi --query-gpu=memory.used,utilization.gpu --format=csv", shell=True)
 '''
 
 
 def build(kdir, owner, data_ds, stage, hours="10.5", init="pre", batch="4", crop="240", epochs="3", slug=None,
-          init_kernel=None, extra="", module="model.train_clm"):
+          init_kernel=None, extra="", module="model.train_clm", tries=None, machine=None, competitions=()):
+    """tries: [(batch, crop)] tried in order on CUDA OOM; machine: e.g. 'NvidiaRtxPro6000' (needs the matching
+    competition attached, e.g. competitions=['arc-prize-2026-arc-agi-3'])."""
     body = (BODY.replace("__MODULE__", module).replace("__EXTRA__", extra).replace("__STAGE__", stage).replace("__HOURS__", hours).replace("__INIT__", init)
-            .replace("__BATCH__", batch).replace("__CROP__", crop).replace("__EPOCHS__", epochs))
+            .replace("__BATCH__", batch).replace("__CROP__", crop).replace("__EPOCHS__", epochs)
+            .replace("__TRIES__", repr(list(tries or []))))
     body = body.replace('",".join(sorted(set(os.path.dirname(f) for f in files))\n       and [d + "/seq_*.npz" for d in sorted(set(os.path.dirname(f) for f in files))])',
                         '",".join(d + "/seq_*.npz" for d in sorted(set(os.path.dirname(f) for f in files)))')
-    return build_kernel(kdir, slug or f"{owner}/kgc-train-{stage}", f"kgc train {stage}", body, gpu=True,
-                        dataset_sources=[d for d in data_ds.split(",") if d],
-                        kernel_sources=[k for k in (init_kernel or "").split(",") if k])
+    out = build_kernel(kdir, slug or f"{owner}/kgc-train-{stage}", f"kgc train {stage}", body, gpu=True,
+                       dataset_sources=[d for d in data_ds.split(",") if d],
+                       kernel_sources=[k for k in (init_kernel or "").split(",") if k])
+    if machine or competitions:
+        import json
+        mp = os.path.join(kdir, "kernel-metadata.json")
+        m = json.load(open(mp))
+        if machine:
+            m["machine_shape"] = machine
+        m["competition_sources"] = list(competitions)
+        json.dump(m, open(mp, "w"), indent=1)
+    return out
 
 
 if __name__ == "__main__":
