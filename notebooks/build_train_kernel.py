@@ -78,15 +78,16 @@ subprocess.run("free -g; nvidia-smi --query-gpu=memory.used,utilization.gpu --fo
 
 
 def build(kdir, owner, data_ds, stage, hours="10.5", init="pre", batch="4", crop="240", epochs="3", slug=None,
-          init_kernel=None, extra="", module="model.train_clm", tries=None, machine=None, competitions=()):
+          init_kernel=None, extra="", module="model.train_clm", tries=None, machine=None, competitions=(), internet=True):
     """tries: [(batch, crop)] tried in order on CUDA OOM; machine: e.g. 'NvidiaRtxPro6000' (needs the matching
-    competition attached, e.g. competitions=['arc-prize-2026-arc-agi-3'])."""
+    competition attached, e.g. competitions=['arc-prize-2026-arc-agi-3'], and internet=False: code competitions reject
+    internet-on kernels with a 400 on SaveKernel; push with `--accelerator <machine>`)."""
     body = (BODY.replace("__MODULE__", module).replace("__EXTRA__", extra).replace("__STAGE__", stage).replace("__HOURS__", hours).replace("__INIT__", init)
             .replace("__BATCH__", batch).replace("__CROP__", crop).replace("__EPOCHS__", epochs)
             .replace("__TRIES__", repr(list(tries or []))))
     body = body.replace('",".join(sorted(set(os.path.dirname(f) for f in files))\n       and [d + "/seq_*.npz" for d in sorted(set(os.path.dirname(f) for f in files))])',
                         '",".join(d + "/seq_*.npz" for d in sorted(set(os.path.dirname(f) for f in files)))')
-    out = build_kernel(kdir, slug or f"{owner}/kgc-train-{stage}", f"kgc train {stage}", body, gpu=True,
+    out = build_kernel(kdir, slug or f"{owner}/kgc-train-{stage}", f"kgc train {stage}", body, gpu=True, internet=internet,
                        dataset_sources=[d for d in data_ds.split(",") if d],
                        kernel_sources=[k for k in (init_kernel or "").split(",") if k])
     if machine or competitions:
