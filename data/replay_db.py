@@ -11,7 +11,10 @@ import json
 import os
 
 import pyarrow.parquet as pq
-import zstandard as zstd
+try:
+    import zstandard as zstd
+except ImportError:            # offline kernels (e.g. internet-off competition images) that never decode replays
+    zstd = None
 
 
 def _unz(b):
