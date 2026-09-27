@@ -29,7 +29,7 @@ for name, extra in (("eng", ["--eng_init", eng[0], "--freeze_tables"] if eng els
         continue
     out = "/kaggle/working/" + name
     cmd = [sys.executable, "-u", "-m", "rl.v5_offline", "--samples", "/kaggle/input/**/samples_*.pkl", "--vocab", voc[0],
-           "--out", out, "--hours", "__HOURS__", "--epochs", "40", "--bs", "1024"] + extra
+           "--out", out, "--hours", "__HOURS__", "--epochs", "40", "--bs", "1024"] + extra + __EXTRA__
     print("cmd", cmd, flush=True)
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
     for line in p.stdout:
@@ -48,7 +48,8 @@ if __name__ == "__main__":
     kdir, owner, data_ds = sys.argv[1:4]
     hours = sys.argv[4] if len(sys.argv) > 4 else "1.5"
     os.makedirs(kdir, exist_ok=True)
-    open(os.path.join(kdir, "script.py"), "w").write(SCRIPT.replace("__HOURS__", hours))
+    extra = os.environ.get("V5OFF_EXTRA", "").split()
+    open(os.path.join(kdir, "script.py"), "w").write(SCRIPT.replace("__HOURS__", hours).replace("__EXTRA__", repr(extra)))
     json.dump({"id": f"{owner}/kgc-v5offline", "title": "kgc v5offline", "code_file": "script.py", "language": "python",
                "kernel_type": "script", "is_private": True, "enable_gpu": True, "enable_internet": True,
                "dataset_sources": [f"{owner}/" + os.environ.get("V5_DATASET", "kgc-src"), data_ds],

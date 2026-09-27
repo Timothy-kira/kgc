@@ -43,6 +43,22 @@ def load(pattern):
     return S
 
 
+LADDER = {"near": 0.55, "loss": 0.15, "top": 0.10, "live": 0.15, "self": 0.05}     # = rl/v5_rl.LADDER
+
+
+def kind_weights(kinds, mode):
+    """Per-sample weights: 'ladder' reweights each opponent category to its share of our ladder games."""
+    if mode != "ladder":
+        return np.ones(len(kinds), np.float32)
+    kinds = np.asarray(kinds)
+    w = np.zeros(len(kinds), np.float32)
+    for k, share in LADDER.items():
+        m = kinds == k
+        if m.any():
+            w[m] = share / m.mean()
+    return w / max(w.mean(), 1e-8)
+
+
 def tensors(S, idx):
     X = [torch.from_numpy(np.stack([S[i]["inp"][k] for i in idx])) for k in KEYS]
     X = [x.to(dt) for x, dt in zip(X, DTYPES)]
@@ -99,16 +115,27 @@ def gains(net, X, k, bs, dev):
     return torch.cat(out)
 
 
-def decision_value(G, allowed_k, R, g, margin, c):
-    """Mean realised reward gain (vs the greedy = v4b action) of the acting rule on held-out decisions."""
+def decision_value(G, allowed_k, R, g, margin, c, kinds=None, mode="mean"):
+    """Realised reward gain (vs the greedy = base action) of the acting rule on held-out decisions.
+    mode 'mean': plain mean. mode 'ladder': ladder-weighted mean over opponent categories, and -inf when the near or
+    top category gain is negative (the rule must not hurt the dominant ladder opponents)."""
     score = G.mean(1) - (c * G.std(1) if G.size(1) > 1 else 0)
     score[:, FOLLOW] = margin
     score = score.masked_fill(~allowed_k, -1e9)
     a = score.argmax(-1)
     ra = R.gather(1, a[:, None]).squeeze(1)
     rg = R.gather(1, g[:, None]).squeeze(1)
-    gain = torch.where(torch.isnan(ra), torch.zeros_like(ra), ra - rg)
-    return float(gain.mean()), float((a != g).float().mean()), float(gain.std() / max(1, len(gain)) ** 0.5)
+    gain = torch.where(torch.isnan(ra), torch.zeros_like(ra), ra - rg).numpy()
+    dev = float((a != g).float().mean())
+    if mode != "ladder" or kinds is None:
+        return float(gain.mean()), dev, float(gain.std() / max(1, len(gain)) ** 0.5)
+    per = {k: gain[kinds == k] for k in LADDER if (kinds == k).any()}
+    tot = sum(LADDER[k] for k in per)
+    v = sum(LADDER[k] / tot * x.mean() for k, x in per.items())
+    se = float(np.sqrt(sum((LADDER[k] / tot) ** 2 * x.var() / len(x) for k, x in per.items())))
+    if any(k in per and per[k].mean() < 0 for k in ("near", "top")):
+        v = -1e9
+    return float(v), dev, se
 
 
 def main():
@@ -125,6 +152,9 @@ def main():
     ap.add_argument("--hold", type=float, default=0.1)
     ap.add_argument("--patience", type=int, default=5)
     ap.add_argument("--hours", type=float, default=3.0)
+    ap.add_argument("--weights", choices=["none", "ladder"], default="none",
+                    help="ladder: reweight samples to the ladder's opponent mix and select the rule on the ladder-weighted "
+                         "held-out gain with near / top gains >= 0")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     dev = "cuda" if torch.cuda.is_available() else "cpu"
@@ -134,7 +164,10 @@ def main():
     train = np.where(jobs >= a.hold * 1000)[0]
     Xt, Rt, kt, gt = tensors(S, train)
     Xh, Rh, kh, gh = tensors(S, hold)
+    kinds_t = np.array([S[i].get("kind", "") for i in train])
+    kinds_h = np.array([S[i].get("kind", "") for i in hold])
     del S
+    wk = torch.from_numpy(kind_weights(kinds_t, a.weights))
     print(json.dumps({"train": len(train), "hold": len(hold), "dev": dev}), flush=True)
     vocab = Vocab(a.vocab)
     torch.manual_seed(0)
@@ -144,7 +177,7 @@ def main():
     net.to(dev)
     groups = [dict(g_, params=[p for p in g_["params"] if p.requires_grad]) for g_ in net.param_groups(a.lr)]
     opt = torch.optim.AdamW([g_ for g_ in groups if g_["params"]], betas=(0.9, 0.99))
-    boot = torch.poisson(torch.ones(len(kt), a.ens))              # fixed bootstrap weights per member
+    boot = torch.poisson(torch.ones(len(kt), a.ens)) * wk[:, None]  # bootstrap (Poisson(1)) x category weight
     oracle = Rh.nan_to_num(-1e9).max(1).values - Rh.gather(1, gh[:, None]).squeeze(1)
     print(json.dumps({"hold_oracle_gain": round(float(oracle.mean()), 5),
                       "hold_better": round(float((oracle > 0).float().mean()), 3)}), flush=True)
@@ -174,10 +207,21 @@ def main():
         grid = {}
         for m in (0.0, 0.25, 0.5, 1.0, 2.0, 3.0, 5.0):
             for c in (0.0, 0.5, 1.0, 2.0):
-                grid[f"{m}/{c}"] = decision_value(G, allowed_h, Rh, gh, m, c)
+                grid[f"{m}/{c}"] = decision_value(G, allowed_h, Rh, gh, m, c, kinds_h, a.weights)
         key, (v, dv, se) = max(grid.items(), key=lambda kv: kv[1][0])
+        m_, c_ = (float(x) for x in key.split("/"))
+        byk = {}
+        sc = G.mean(1) - (c_ * G.std(1) if G.size(1) > 1 else 0)
+        sc[:, FOLLOW] = m_
+        act = sc.masked_fill(~allowed_h, -1e9).argmax(-1)
+        ra = Rh.gather(1, act[:, None]).squeeze(1)
+        gn = torch.where(torch.isnan(ra), torch.zeros_like(ra), ra - Rh.gather(1, gh[:, None]).squeeze(1)).numpy()
+        for kd in LADDER:
+            if (kinds_h == kd).any():
+                byk[kd] = round(float(gn[kinds_h == kd].mean()) * 1e3, 3)
         rec = {"ep": ep, "train_loss": round(float(np.mean(tl)), 4), "hold_loss": round(float(np.mean(hl)), 4),
                "best_rule": key, "hold_gain": round(v, 5), "hold_gain_se": round(se, 5), "dev_rate": round(dv, 4),
+               "gain_by_kind_x1e3": byk,
                "min": round((time.time() - t0) / 60, 1)}
         print("EPOCH " + json.dumps(rec), flush=True)
         if v > best[0]:
