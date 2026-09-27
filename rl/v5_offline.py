@@ -43,7 +43,8 @@ def load(pattern):
     return S
 
 
-LADDER = {"near": 0.55, "loss": 0.15, "top": 0.10, "live": 0.15, "self": 0.05}     # = rl/v5_rl.LADDER
+LADDER = {"near": 0.55, "loss": 0.15, "top": 0.10, "live": 0.15, "self": 0.05,     # = rl/v5_rl.LADDER
+          "selfpi": 0.05}                    # self-play vs the current policy: weighted like the v4b mirror
 
 
 def kind_weights(kinds, mode):

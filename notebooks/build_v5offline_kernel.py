@@ -25,7 +25,7 @@ print("samples files", len(pk), "engram", eng, "vocab", voc, flush=True)
 subprocess.run(["nvidia-smi"], check=False)
 res = {}
 for name, extra in (("eng", ["--eng_init", eng[0], "--freeze_tables"] if eng else None), ("fresh", [])):
-    if extra is None:
+    if extra is None or name not in __VARIANTS__:
         continue
     out = "/kaggle/working/" + name
     cmd = [sys.executable, "-u", "-m", "rl.v5_offline", "--samples", "/kaggle/input/**/samples_*.pkl", "--vocab", voc[0],
@@ -49,9 +49,11 @@ if __name__ == "__main__":
     hours = sys.argv[4] if len(sys.argv) > 4 else "1.5"
     os.makedirs(kdir, exist_ok=True)
     extra = os.environ.get("V5OFF_EXTRA", "").split()
-    open(os.path.join(kdir, "script.py"), "w").write(SCRIPT.replace("__HOURS__", hours).replace("__EXTRA__", repr(extra)))
+    variants = os.environ.get("V5OFF_VARIANTS", "eng,fresh").split(",")
+    open(os.path.join(kdir, "script.py"), "w").write(SCRIPT.replace("__HOURS__", hours).replace("__EXTRA__", repr(extra))
+                                                     .replace("__VARIANTS__", repr(variants)))
     json.dump({"id": f"{owner}/kgc-v5offline", "title": "kgc v5offline", "code_file": "script.py", "language": "python",
                "kernel_type": "script", "is_private": True, "enable_gpu": True, "enable_internet": True,
-               "dataset_sources": [f"{owner}/" + os.environ.get("V5_DATASET", "kgc-src"), data_ds],
+               "dataset_sources": [f"{owner}/" + os.environ.get("V5_DATASET", "kgc-src")] + data_ds.split(","),
                "competition_sources": [], "kernel_sources": []},
               open(os.path.join(kdir, "kernel-metadata.json"), "w"), indent=1)
