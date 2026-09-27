@@ -191,3 +191,23 @@
 **Engram continuation**
 - The RTX Pro 6000 (via the ARC competition) requires internet off. The user switched to T4: `xishengfeng/kgc-train-engram`.
 - Data: evelynyang02/kgc-engz-0..7, eight single-zip datasets. A single create call with about 1,800 files returned 504 and left the upload hanging.
+
+## 12. Asynchronous large-scale RL on permitted resources (09-27 14:00)
+
+**Rules and roles**
+- The RTX PRO 6000 is reserved for ARC Prize notebooks, so it is not used for Kaggriculture, nor disguised as an ARC notebook.
+- Scale comes instead from all 10 CPU sessions across the two accounts (10 × 4 cores, about 40 cores): they are the actors.
+- One T4 is the learner.
+
+**Asynchronous actor-learner, adapted to Kaggle.** Kernel outputs only appear when a kernel ends, so the loop runs as follows:
+- **Actors:** `rl.v5_rl --sample_only` in 3-hour sessions.
+  - Each session acts with the newest accepted policy (`--init_policy`, rule `m/c`) against replay tapes, league agents, v4b mirrors and self-play vs π (`--mix selfpi=0.2`).
+  - A finished actor is replaced immediately, so actors never wait for the learner.
+- **Learner:** whenever actors finish, `rl.v5_offline --weights ladder --init_policy <best>` trains on all samples so far.
+  - Every sample stores its base action, so samples from different policy versions pool.
+  - Then `tools.v5_recheck` runs, 313 games.
+  - A candidate that beats the incumbent on ladder-weighted wdwin (with near/top not worse) becomes the policy of the next actor launches.
+- **Current actors**
+  - `kgc-v5rl-r2a..f`: round 2, π = eng cooldown-4, until about 22:00.
+  - `kgc-v5rl-as1..4`: π = eng_ladder 0.25/2.0 with self-play, 3 hours.
+- **Afterwards:** supervised Engram continuation on T4 (data evelynyang02/kgc-engz-0..7).
