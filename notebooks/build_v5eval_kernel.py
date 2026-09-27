@@ -1,7 +1,9 @@
 """Kaggle CPU kernel: A-track promotion re-check (tools/v5_recheck.py) of policies shipped in <owner>/kgc-src.
 
 python notebooks/build_v5eval_kernel.py <kernel_dir> <owner> <policy path in dataset, e.g. assets/cand/policy_eval010.pt>
-       [margins=0.25,0.5,1.0] [extra env, e.g. ENS=1]
+       [rules=0.25,0.5,1.0]            rules: "margin" or "margin/c" (tools/v5_recheck.py)
+Env: V5_KSRC = comma list of kernel sources (e.g. xishengfeng/kgc-v5offline) - then the policy may be a glob under
+/kaggle/input such as '/kaggle/input/**/eng/policy.pt'; V5_SUFFIX = slug suffix (parallel re-checks).
 Output: /kaggle/working/recheck.json (+ the log lines). Delete the kernel after reading the result.
 """
 import json
@@ -16,7 +18,11 @@ root = os.path.dirname(os.path.dirname(src))
 shutil.copytree(root, "/kaggle/working/src", dirs_exist_ok=True)
 os.chdir("/kaggle/working/src")
 env = dict(os.environ, PYTHONPATH="/kaggle/working/src")
-cmd = [sys.executable, "-u", "-m", "tools.v5_recheck", "__POLICY__", "assets/rl_pools_v2.pkl", "assets/opp_vocab.npz",
+pol = "__POLICY__"
+if "*" in pol:
+    pol = sorted(glob.glob(pol, recursive=True))[0]
+print("policy", pol, flush=True)
+cmd = [sys.executable, "-u", "-m", "tools.v5_recheck", pol, "assets/rl_pools_v2.pkl", "assets/opp_vocab.npz",
        "/kaggle/working/recheck.json", "__MARGINS__", str(os.cpu_count())]
 print("cmd", cmd, flush=True)
 p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
@@ -32,7 +38,9 @@ if __name__ == "__main__":
     margins = sys.argv[4] if len(sys.argv) > 4 else "0.25,0.5,1.0"
     os.makedirs(kdir, exist_ok=True)
     open(os.path.join(kdir, "script.py"), "w").write(SCRIPT.replace("__POLICY__", policy).replace("__MARGINS__", margins))
-    json.dump({"id": f"{owner}/kgc-v5eval", "title": "kgc v5eval", "code_file": "script.py", "language": "python",
+    sfx = os.environ.get("V5_SUFFIX", "")
+    ksrc = [k for k in os.environ.get("V5_KSRC", "").split(",") if k]
+    json.dump({"id": f"{owner}/kgc-v5eval{sfx}", "title": f"kgc v5eval{sfx}", "code_file": "script.py", "language": "python",
                "kernel_type": "script", "is_private": True, "enable_gpu": False, "enable_internet": True,
-               "dataset_sources": [f"{owner}/kgc-src"], "competition_sources": [], "kernel_sources": []},
+               "dataset_sources": [f"{owner}/kgc-src"], "competition_sources": [], "kernel_sources": ksrc},
               open(os.path.join(kdir, "kernel-metadata.json"), "w"), indent=1)
