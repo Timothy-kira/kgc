@@ -42,5 +42,5 @@ if __name__ == "__main__":
     ksrc = [k for k in os.environ.get("V5_KSRC", "").split(",") if k]
     json.dump({"id": f"{owner}/kgc-v5eval{sfx}", "title": f"kgc v5eval{sfx}", "code_file": "script.py", "language": "python",
                "kernel_type": "script", "is_private": True, "enable_gpu": False, "enable_internet": True,
-               "dataset_sources": [f"{owner}/kgc-src"], "competition_sources": [], "kernel_sources": ksrc},
+               "dataset_sources": [f"{owner}/" + os.environ.get("V5_DATASET", "kgc-src")], "competition_sources": [], "kernel_sources": ksrc},
               open(os.path.join(kdir, "kernel-metadata.json"), "w"), indent=1)
