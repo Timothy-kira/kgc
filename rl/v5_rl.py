@@ -79,7 +79,7 @@ def train_task(args):
     runner = _net(weights)
     kind, name, seed, seat, cfg, how = G["mix"].spec(j)
     opp = OppMix.make(how)
-    me = V5Agent(G["vocab"], policy_fn=runner.greedy)
+    me = V5Agent(G["vocab"], policy_fn=runner.greedy, cooldown=G.get("cooldown", 0), budget=G.get("budget"))
     env = FarmEnv(seed, cfg)
     rng = random.Random(j)
     fork_at = set(DECIDE_EVERY * d for d in rng.sample(range(2, 120), n_forks))
@@ -89,6 +89,8 @@ def train_task(args):
         if t in fork_at:
             inp = me.inputs(env.obs(seat))
             greedy, _ = runner.greedy(inp)
+            greedy = [FOLLOW if (a_ != FOLLOW and (me.cool[k_] > 0 or (me.budget is not None and me.n_dev >= me.budget)))
+                      else a_ for k_, a_ in enumerate(greedy)]              # = what the trunk plays (trust region)
             al = inp["allowed"]
             heads = [k for k in range(len(CTRL)) if any(al[k, a] and a != greedy[k] for a in range(N_ACT))]
             if heads:
@@ -270,6 +272,9 @@ def main():
     ap.add_argument("--eval_pools", default="", help="whole-DB pools: EVAL on the ~310-game fresh suite (tools/v5_recheck)")
     ap.add_argument("--learner_threads", type=int, default=1)
     ap.add_argument("--save_frac", type=float, default=1.0, help="share of update batches saved (compressed)")
+    ap.add_argument("--init_policy", default="", help="start from these weights (round-2 sampling: act with pi_1)")
+    ap.add_argument("--cooldown", type=int, default=0, help="rl/v5_agent trust region: follow for N decisions after a deviation")
+    ap.add_argument("--budget", type=int, default=-1, help="rl/v5_agent trust region: max deviations per game (-1 = inf)")
     ap.add_argument("--sample_only", action="store_true",
                     help="pure sampler for rl/v5_offline.py: act with the initial policy (= v4b), no learning / EVAL, "
                          "save every batch; samples of all sampler kernels pool (Q under the v4b continuation)")
@@ -283,6 +288,7 @@ def main():
     G["vocab"] = Vocab(a.vocab)
     G["margin"] = a.margin if a.obj == "adv" else 0.0
     G["ens"], G["lcb_c"] = a.ens, a.lcb_c
+    G["cooldown"], G["budget"] = a.cooldown, (None if a.budget < 0 else a.budget)
     mix = dict(MIX)
     for kv in filter(None, a.mix.split(",")):
         k, v = kv.split("=")
@@ -298,6 +304,9 @@ def main():
     torch.manual_seed(0)
     net = RLPolicy(G["vocab"].sizes, ens=a.ens)
     latest = os.path.join(a.out, "policy_latest.pt")
+    if a.init_policy:
+        net.load_state_dict(torch.load(a.init_policy, map_location="cpu"))
+        print("init_policy", a.init_policy, flush=True)
     if os.path.exists(latest):
         net.load_state_dict(torch.load(latest))
         print("resumed", latest, flush=True)
