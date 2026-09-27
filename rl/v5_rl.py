@@ -72,11 +72,18 @@ def _play(env, me, opp, seat):
     return env.money[seat] - env.money[1 - seat]
 
 
+def _pi_factory(weights):
+    def make():
+        return V5Agent(G["vocab"], policy_fn=_net(weights).greedy, cooldown=G.get("cooldown", 0), budget=G.get("budget"))
+    return make
+
+
 def train_task(args):
     j, weights, n_forks = args
     best_effort()
     torch.set_num_threads(1)
     runner = _net(weights)
+    OppMix.PI_FACTORY = _pi_factory(weights)
     kind, name, seed, seat, cfg, how = G["mix"].spec(j)
     opp = OppMix.make(how)
     me = V5Agent(G["vocab"], policy_fn=runner.greedy, cooldown=G.get("cooldown", 0), budget=G.get("budget"))
@@ -126,6 +133,7 @@ def eval_task(args):
     best_effort()
     torch.set_num_threads(1)
     kind, name, seed, seat, cfg, how = spec
+    OppMix.PI_FACTORY = _pi_factory(weights) if weights else None
     if tag == "base":
         me = v4b()
     else:
@@ -395,6 +403,11 @@ def main():
             log.write(json.dumps({"ITER": rec}) + "\n")
             log.flush()
             it, buf, n_tasks, t_it = it + 1, [], 0, time.time()
+        if a.sample_only and buf:                                  # keep the last partial batch
+            import pickle
+            comp = [dict(s_, inp={k: (v.astype(np.float16) if k == "feats" else v.astype(np.int32) if k.startswith("rows")
+                                      else v) for k, v in s_["inp"].items()}) for s_ in buf]
+            pickle.dump(comp, open(os.path.join(a.out, f"samples_{it:04d}.pkl"), "wb"))
         pool.terminate()
 
 

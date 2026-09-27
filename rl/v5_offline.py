@@ -32,7 +32,7 @@ DTYPES = (torch.float32, torch.long, torch.long, torch.bool, torch.bool)
 
 
 def load(pattern):
-    files = sorted(glob.glob(pattern, recursive=True))
+    files = sorted(set(sum((glob.glob(p, recursive=True) for p in pattern.split(",") if p), [])))
     S = []
     for f in files:
         try:
@@ -144,6 +144,7 @@ def main():
     ap.add_argument("--vocab", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--eng_init", default="")
+    ap.add_argument("--init_policy", default="", help="warm start from these policy weights (iterated improvement)")
     ap.add_argument("--freeze_tables", action="store_true")
     ap.add_argument("--ens", type=int, default=5)
     ap.add_argument("--epochs", type=int, default=30)
@@ -172,7 +173,13 @@ def main():
     vocab = Vocab(a.vocab)
     torch.manual_seed(0)
     net = RLPolicy(vocab.sizes, ens=a.ens)
-    if a.eng_init:
+    if a.init_policy:
+        net.load_state_dict(torch.load(a.init_policy, map_location="cpu"))
+        print("init_policy", a.init_policy, flush=True)
+        if a.freeze_tables:
+            for e in (net.eng_s, net.eng_d):
+                e.embed.weight.requires_grad_(False)
+    elif a.eng_init:
         eng_init(net, a.eng_init, a.freeze_tables)
     net.to(dev)
     groups = [dict(g_, params=[p for p in g_["params"] if p.requires_grad]) for g_ in net.param_groups(a.lr)]

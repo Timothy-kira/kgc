@@ -6,6 +6,7 @@ rules: comma list of "margin[/c[/cooldown[/budget]]]" (c = LCB coefficient of th
 cooldown / budget = rl/v5_agent.V5Agent trust region, budget -1 = unlimited); the ensemble size is read from the weights. For every rule: win rate / money difference vs v4b on the same games (paired SE), per category, head-to-head.
 """
 import json
+import os
 import sys
 
 import numpy as np
@@ -27,7 +28,8 @@ def main():
     procs = int(sys.argv[6]) if len(sys.argv) > 6 else 4
     V.G["vocab"] = Vocab(vocab)
     ev = load_pools(pools, "eval")
-    counts = {k: min(v, len(ev.get(k, []))) if k in ev else v for k, v in COUNTS.items()}
+    scale = float(os.environ.get("RECHECK_SCALE", "1"))                   # < 1 only for smoke tests
+    counts = {k: max(1, int(round((min(v, len(ev.get(k, []))) if k in ev else v) * scale))) for k, v in COUNTS.items()}
     suite = OppMix(ev, seed_base=1_700_000_000).eval_specs(counts, start=3 * 10 ** 6)
     with warm_pool(procs) as pool:
         base = {j: (kind, d) for _, j, kind, d in pool.imap_unordered(V.eval_task, [("base", j, s, None) for j, s in suite])}

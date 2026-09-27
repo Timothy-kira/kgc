@@ -63,11 +63,13 @@ def export(db_dir, out, n_near=800, n_top=400, loss_db=None):
 
 
 class OppMix:
-    """Deterministic job id -> opponent spec over the category mix."""
+    """Deterministic job id -> opponent spec over the category mix. Category "selfpi" = self-play against the current
+    learned policy (built by OppMix.PI_FACTORY, set by the actor process)."""
+    PI_FACTORY = None
 
     def __init__(self, pools, mix=MIX, seed_base=20000):
         self.pools = pools
-        w = [(k, v) for k, v in mix.items() if v > 0 and (k in ("live", "self") or pools.get(k))]
+        w = [(k, v) for k, v in mix.items() if v > 0 and (k in ("live", "self", "selfpi") or pools.get(k))]
         tot = sum(v for _, v in w)
         self.mix = [(k, v / tot) for k, v in w]
         self.seed_base = seed_base
@@ -84,10 +86,12 @@ class OppMix:
     def spec(self, j, cat=None):
         """-> (kind, name, seed, seat, cfg, how) with how = ("tape", blob) | ("agent", path) | ("v4b",)."""
         cat = cat or self.category(j)
-        if cat in ("live", "self"):
+        if cat in ("live", "self", "selfpi"):
             seed, seat = self.seed_base + j, j % 2
             if cat == "self":
                 return "self", "v4b", seed, seat, None, ("v4b",)
+            if cat == "selfpi":
+                return "selfpi", "pi", seed, seat, None, ("pi",)
             path = LIVE[(j // 2) % len(LIVE)]
             return "live", path, seed, seat, None, ("agent", path)
         pool = self.pools[cat]
@@ -100,13 +104,15 @@ class OppMix:
             return Tape1(how[1])
         if how[0] == "v4b":
             return v4b()
+        if how[0] == "pi":
+            return OppMix.PI_FACTORY() if OppMix.PI_FACTORY is not None else v4b()
         return load_agent(how[1])
 
     def eval_specs(self, counts=EVAL_COUNTS, start=10 ** 6):
         """Stratified, fixed evaluation jobs (use with the held-out pools)."""
         out = []
         for cat, n in counts.items():
-            if cat not in ("live", "self") and not self.pools.get(cat):
+            if cat not in ("live", "self", "selfpi") and not self.pools.get(cat):
                 continue
             for i in range(n):
                 j = start + len(out)
