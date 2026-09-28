@@ -222,3 +222,14 @@
 - A higher offline one-step gain does not become a higher paired-game win rate. Top opponents regress more as the learner fits more data.
 - Likely cause: compounding deviations, which single-deviation fork samples cannot see.
 - Next test: trust-region variants of eng_ladder itself (cooldown 2, budget 30, margin 0.5), rechecked directly, before any further learner rounds.
+
+**Trust-region recheck of eng_ladder (09-28 03:10)**, 313 games:
+
+| Rule (m/c/cd/budget) | Win | wdwin | near | top |
+|---|---|---|---|---|
+| 0.25/2.0/2/-1 | 80.5% | +0.054 | -0.9pp | -2.5pp |
+| 0.25/2.0/0/30 | 80.5% | +0.059 | -0.9pp | -2.5pp |
+| 0.5/2.0/0/-1 | 80.4% | +0.059 ± 0.013 | 0.0pp | 0.0pp |
+
+- The stricter margin 0.5/2.0 keeps the full gain with no category regression.
+- It was submitted as 56627354. Samplers launched from now on act with 0.5/2.0.
