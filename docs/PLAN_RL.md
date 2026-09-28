@@ -211,3 +211,14 @@
   - `kgc-v5rl-r2a..f`: round 2, π = eng cooldown-4, until about 22:00.
   - `kgc-v5rl-as1..4`: π = eng_ladder 0.25/2.0 with self-play, 3 hours.
 - **Afterwards:** supervised Engram continuation on T4 (data evelynyang02/kgc-engz-0..7).
+
+**Async results (09-27/28).** Recheck, 313 paired games vs v4b (base win 69.5%); incumbent eng_ladder 0.25/2.0: wdwin +0.059, near -0.9pp, top -2.5pp.
+
+| Candidate | Samples | Held-out gain | Best recheck | wdwin | near | top |
+|---|---|---|---|---|---|---|
+| eng_async1 | 212k | +0.0006 | 0.5/2.0 | +0.058 | +0.8pp | -5pp |
+| eng_async2 | 438k | +0.00093 (all six kinds positive) | 0.5/2.0 | +0.041 | -0.9pp | -12.5pp |
+
+- A higher offline one-step gain does not become a higher paired-game win rate. Top opponents regress more as the learner fits more data.
+- Likely cause: compounding deviations, which single-deviation fork samples cannot see.
+- Next test: trust-region variants of eng_ladder itself (cooldown 2, budget 30, margin 0.5), rechecked directly, before any further learner rounds.
