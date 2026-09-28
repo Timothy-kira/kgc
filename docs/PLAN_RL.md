@@ -233,3 +233,9 @@
 
 - The stricter margin 0.5/2.0 keeps the full gain with no category regression.
 - It was submitted as 56627354. Samplers launched from now on act with 0.5/2.0.
+
+**Ladder mechanics (09-28 07:50).** Only the two most recent submissions keep playing episodes.
+- v4b 56564007 stopped at 09-27 12:25, when 56608523 was submitted; cd4 56605669 stopped at 09-28 03:14.
+- So v4b's 2185.7 was frozen, and the v5 ladder ratings (≈1790–2010, no errors or timeouts in 12 replays) are the live ones.
+- v4b was resubmitted as 56634018.
+- From now on, every new submission pushes out the older of the two active ones. Submit only candidates that are expected to beat v4b on the real ladder; the 313-game recheck pool over-predicts v5.
